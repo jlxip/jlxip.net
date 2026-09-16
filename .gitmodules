@@ -1,0 +1,3 @@
+[submodule "my98"]
+	path = my98
+	url = git@github.com:jlxip/my98.git
