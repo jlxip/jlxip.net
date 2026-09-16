@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>jlxip.net</title>
+    <link rel="stylesheet" href="vendor/basecoat-1.0.2/basecoat.min.css">
+    <style>
+        html, body {
+            margin: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #0b0e12;
+        }
+        body {
+            height: 100vh;
+            height: 100dvh;
+            display: grid;
+            place-items: center;
+        }
+        #screen_container {
+            width: min(100vw, calc(100vh * 4 / 3));
+            width: min(100vw, calc(100dvh * 4 / 3));
+            aspect-ratio: 4 / 3;
+        }
+        #screen[hidden] { display: none; }
+        #vga {
+            display: block;
+            width: 100%;
+            height: 100%;
+        }
+    </style>
+</head>
+<body>
+    <main id="screen_container" aria-label="Windows 98 display">
+        <div id="screen" hidden></div>
+        <canvas id="vga" width="800" height="600"></canvas>
+    </main>
+</body>
+</html>
