@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>jlxip.net</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #0b0e12; }
+        canvas { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+    </style>
+</head>
+<body>
+    <canvas id="vga" width="800" height="600" aria-label="Windows 98 display"></canvas>
+    <script src="build/my98.min.js"></script>
+    <script>
+        const canvas = document.getElementById("vga");
+        let emulator, failed = false;
+        const timeout = setTimeout(() => fail(new Error("Emulator initialization timed out.")), 30000);
+
+        function fail(error) {
+            if(failed) return;
+            failed = true;
+            clearTimeout(timeout);
+            canvas.style.display = "none";
+            const errorMessage = document.createElement("p");
+            errorMessage.id = "error";
+            errorMessage.setAttribute("role", "alert");
+            errorMessage.style.cssText = "margin: 24px; color: #e5e7eb; font: 16px/1.5 system-ui;";
+            errorMessage.textContent = "Could not start the emulator. Check the local build and reload the page.";
+            document.body.append(errorMessage);
+            console.error(error);
+            if(emulator?.v86) emulator.destroy().catch(console.error);
+        }
+
+        function fitScreen() {
+            if(failed) return;
+            const aspect = emulator.screen_get_aspect_ratio() || canvas.width / canvas.height;
+            const width = Math.min(innerWidth, innerHeight * aspect), height = width / aspect;
+            canvas.style.width = width + "px";
+            canvas.style.height = height + "px";
+            const scaleX = width / canvas.width, scaleY = height / canvas.height;
+            canvas.style.imageRendering = Number.isInteger(scaleX) && Number.isInteger(scaleY) ? "pixelated" : "auto";
+        }
+
+        async function decodeAsset(base64) {
+            const binary = atob(base64);
+            const bytes = new Uint8Array(binary.length);
+            for(let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+            if(window.JLXIP_ASSETS.compression === "gzip") {
+                const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream("gzip"));
+                return new Response(stream).arrayBuffer();
+            }
+            return bytes.buffer;
+        }
+
+        async function start() {
+            if(!window.V86 || !window.JLXIP_ASSETS) throw new Error("Missing local build. Run make.");
+            const [bios, vgaBios, wasm] = await Promise.all([
+                decodeAsset(window.JLXIP_ASSETS.bios),
+                decodeAsset(window.JLXIP_ASSETS.vgaBios),
+                decodeAsset(window.JLXIP_ASSETS.wasm),
+            ]);
+            const module = await WebAssembly.compile(wasm);
+            if(failed) return;
+            emulator = new V86({
+                wasm_fn: async imports => {
+                    try {
+                        const instance = await WebAssembly.instantiate(module, imports);
+                        if(!failed) return instance.exports;
+                    } catch(error) { fail(error); }
+                    // The upstream constructor has no rejection handler. Stop its
+                    // initialization chain after reporting failure on this page.
+                    return new Promise(() => {});
+                },
+                memory_size: 128 * 1024 * 1024,
+                vga_memory_size: 8 * 1024 * 1024,
+                bios: { buffer: bios },
+                vga_bios: { buffer: vgaBios },
+                boot_order: 0x312,
+                acpi: false,
+                screen: { container: document.body, use_graphical_text: true },
+                disable_speaker: true,
+                disable_mouse: true,
+                disable_keyboard: true,
+                autostart: false,
+            });
+            emulator.add_listener("download-error", event => fail(new Error(event.file_name || "Emulator load failed.")));
+            emulator.add_listener("screen-set-size", fitScreen);
+            emulator.add_listener("emulator-loaded", () => {
+                if(failed) return;
+                clearTimeout(timeout);
+                window.addEventListener("resize", fitScreen);
+                new MutationObserver(fitScreen).observe(canvas, { attributes: true, attributeFilter: ["width", "height"] });
+                fitScreen();
+                emulator.run();
+            });
+        }
+
+        start().catch(fail);
+    </script>
+</body>
+</html>

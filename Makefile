@@ -6,36 +6,18 @@ all: build/my98.min.js
 emulator:
 	$(MAKE) -C my98 emulator node_modules/.package-lock.json
 
-build/my98.js: Makefile emulator
-	@mkdir -p build
-	node -e '\
-		const fs = require("node:fs"); \
-		const assets = Object.fromEntries(Object.entries({ \
-			bios: "my98/bios/seabios.bin", \
-			vgaBios: "my98/bios/bochs-vgabios.bin", \
-			wasm: "my98/build/v86-fallback.wasm" \
-		}).map(([key, file]) => [key, fs.readFileSync(file).toString("base64")])); \
-		const source = fs.readFileSync("my98/build/libv86.js", "utf8") + ";globalThis.JLXIP_ASSETS=" + JSON.stringify(assets) + ";"; \
-		fs.writeFileSync("$@.tmp", source + "\n"); \
-		fs.renameSync("$@.tmp", "$@"); \
-	'
+build/my98.js: Makefile scripts/build-assets.cjs emulator
+	node scripts/build-assets.cjs bundle
 
-build/my98.min.js: build/my98.js
-	node -e '\
-		const fs = require("node:fs"); \
-		const {gzipSync} = require("node:zlib"); \
-		const esbuild = require("./my98/node_modules/esbuild"); \
-		const source = fs.readFileSync("$<", "utf8").trimEnd(); \
-		const marker = ";globalThis.JLXIP_ASSETS="; \
-		const split = source.lastIndexOf(marker); \
-		if(split < 0) throw new Error("Missing embedded assets"); \
-		const assets = JSON.parse(source.slice(split + marker.length, -1)); \
-		for(const key of Object.keys(assets)) assets[key] = gzipSync(Buffer.from(assets[key], "base64"), {level: 9}).toString("base64"); \
-		assets.compression = "gzip"; \
-		const result = esbuild.transformSync(source.slice(0, split) + marker + JSON.stringify(assets) + ";", {minify: true, target: "es2020", legalComments: "inline"}); \
-		fs.writeFileSync("$@.tmp", result.code); \
-		fs.renameSync("$@.tmp", "$@"); \
-	'
+build/my98.min.js: build/my98.js scripts/build-assets.cjs
+	node scripts/build-assets.cjs minify
 
 clean:
 	rm -f build/my98.min.js build/my98.min.js.tmp build/my98.js.tmp
+
+.PHONY: hooks site-test-clean
+hooks:
+	git config --local core.hooksPath .githooks
+
+site-test-clean:
+	python3 scripts/clean-site-test.py
