@@ -1,0 +1,13 @@
+<!doctype html><meta charset="utf-8"><title>Matrix controller fixture</title>
+<style>#display { width: min(800px, 100%); touch-action:none } canvas { width:100%; aspect-ratio:4/3; background:#deded0 } body {margin:0} button {min-height:44px}</style>
+<div id="display"><canvas width="800" height="600" tabindex="0"></canvas></div><button id="open">Open</button>
+<script type="module">
+import {attachMatrixBridge} from '../../scripts/exit-matrix/bridge.js';
+import {setupDirectPointer} from '/__direct-pointer.js';
+const events=[],callbacks=new Map(),surface=document.querySelector('canvas'),display=document.querySelector('#display');
+const machine={is_running:()=>true,bus:{send:(...args)=>events.push(args)},mouse_set_enabled:v=>events.push(['mouse',v]),keyboard_set_enabled:v=>events.push(['keyboard',v]),keyboard_send_scancodes:v=>events.push(['keys',v]),add_listener:(k,f)=>callbacks.set(k,f),remove_listener:k=>callbacks.delete(k)};
+const pointer=setupDirectPointer({display,getSurface:()=>surface,getMachine:()=>machine});
+const bridge=attachMatrixBridge({machine,surface,pointer});
+window.test={events,bridge,feed(s){for(const c of s)callbacks.get('serial0-output-byte')(c.charCodeAt(0));}};
+document.querySelector('#open').onclick=()=>test.feed('JLX98/1 OPEN '+encodeURIComponent(location.origin+'/target')+'\n');
+</script>

@@ -1,0 +1,302 @@
+<!DOCTYPE HTML>
+
+<html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Crypto 101 (2024-02-26) - jlxip's blog</title>
+        <style>
+main {
+	max-width: 80ch;
+	margin: 0 auto;
+}
+
+body {
+	background-color: #0b0e12;
+	font-size: 1.2em;
+}
+
+* {
+	font-family: "DejaVu Sans Mono", monospace;
+	color: #d0d0d0;
+	word-break: break-word;
+}
+
+/* Many <p>s in the HTML make it look weird */
+p, li {
+	margin: 0;
+	line-height: 2.5ex; /* reads easier */
+}
+ul {
+	margin: 0;
+	padding-left: 2ch;
+}
+</style>
+    </head>
+    <body>
+        <main>
+        <h1>Crypto 101 (2024-02-26) - jlxip's blog</h1>
+<p>Revisited 2026-09-22, <a href="https://web.archive.org/web/20241014000258/https://jlxip.net/blog/entries/4">original version here</a>.</p>
+<h2>1. Introduction</h2>
+<p>Ogres, like onions, cakes, and operating systems are layered. Topics with many layers are easy to learn: start from the top, understand it fully, then go onto the next one. Cryptography is not one of these. While operating system development may have 30 or 40 layers, I believe crypto has 4:</p>
+<ul>
+    <li>Classes: conceptual, theoretical groups of algorithms</li>
+    <li>Mechanisms: components of said groups; that is, the actual algorithms</li>
+    <li>Problems: the mathematical problems that mechanisms exploit to achieve security</li>
+    <li>The maths behind it all</li>
+</ul>
+<br>
+<p>In order to understand cryptography and use it correctly, you start at the top. It is not until you understand it fully that you can go down the stack. Furthermore, cryptography is extremely binary: either you completely understand the first two layers, or you understand nothing at all. Cryptography is either all of it or it's nothing.</p>
+<br>
+<p>I've been studying cryptography for many years on my own, and since mid 2023 I professionally work in the crypto department of a cybersecurity firm, so you can trust the advice given in this post. From my experience, I believe many cybersecurity professionals outside of this field have a very thin understanding on the subject, so my motivation behind this is to give a good kickstart for all these people. This post also aims to inflict fear on the reader (that's you) and highlight how important it is to study the subject before having the chance to commit crypto-oopsies, they are surprisingly common.</p>
+<br>
+<p>This post will cover the different classes of cryptographic algorithms. Once fully understood, this is enough to get started on learning the rest. I might write more posts in the future for the consecutive layers. It will probably never happen, but in case you're interested, get notified</p>
+<a href="https://newsletter.jlxip.net/subscription/form">here.</a><br>
+<br>
+<p>This post will cover applied cryptography and actually useful things to know. No modular exponentiation, Caesar's cipher, or Fermat's little theorem.</p>
+<h2>2. The Basics</h2>
+<p>A channel is a means of data transmission. A secure channel (SC) is a channel that is resistant to spying and tampering. There are three desirable properties that an SC may want to have. In most situations, all of them are sought after. These are:</p>
+<ul>
+    <li>Confidentiality: guarantees that nobody who intercepts the messages can read them. A channel that offers only confidentiality is called a confidential channel.</li>
+    <li>Integrity: guarantees that no tampering can take place. Integral channel.</li>
+    <li>Authenticity: guarantees that the message was really sent by who's supposed to. Authentic channel.</li>
+</ul>
+<p>Do not confuse authenticity (cryptographic property) with authentication (logical access permissions). Knowing this distinction, authenticity always implies integrity (but not the other way around!)</p>
+<br>
+<p>Most of the time, an SC has two ends: Alice and Bob. Secure channels can be engineered to have more parties (think of encrypted group chats) but these mechanisms are very specific, often can be avoided, and will not be covered in this post.</p>
+<br>
+<p>There are two superclasses of cryptographic mechanisms: symmetrical and asymmetrical. They refer to whether both parties use the same key to get what they want (symmetric) or not (asymmetric).</p>
+<br>
+<p>A cryptographic primitive is an algorithm that is designed and programmed from scratch. A cryptographic construction is a mechanism that uses one or more cryptographic primitives, and may perform additional calculations to achieve its purpose. This line is somewhat fuzzy, but helps in understanding how each algorithm works.</p>
+<br>
+<p>For each algorithm class, two examples will be given: an old broken one, and a modern not-yet-broken one. A person who dares to do crypto is cursed to always be up to date, as new attacks are discovered on a regular basis: assume that by the time you read this, all these algorithms have been broken and seek updated information. Good sources of information are given by governments in their cryptographic mechanism recommendations, published by their corresponding agencies:</p>
+<ul>
+    <li>USA has NIST's, pretty good but heavily influenced by the NSA</li>
+    <li>Europe has SOG-IS', which is boring and, for the most part, too conservative</li>
+    <li>Germany has BSI's, which is very complete but conservative as well</li>
+    <li>Spain has CCN's, which is very recent and, at the present time, a bit confusing. I believe it will improve soon</li>
+</ul>
+<br>
+<p>Governments will always recommend standardized algorithms. These are studied and clearly defined algorithms that work fine in most cases. Outside of the standards, you're on your own: some may be incredibly good (XChaCha20, Argon2) and some may be completely trivial to break. I would advise to stay out of non-standard mechanisms unless you know what you're doing and don't intend to pass any certifications.</p>
+<br>
+<p>Knowing what algorithms and parameterizations are secure is not enough, anyone who uses crypto must know about what I've began calling "cryptocohesion": the correct ways of chaining the algorithms together in order to build a secure cryptosystem. While there are general practices that are good to follow (such as not using the same key in a cipher and a MAC), most require specific knowledge for each algorithm, such as not reusing a nonce in Poly1305.</p>
+<h2>3. Symmetric Mechanism</h2>
+<p>Symmetric mechanisms transform data. They may have any number of inputs and outputs. They reshape the data directly, in a non-interactive fashion from start to finish.</p>
+<h3>3.1. Symmetric Cipher</h3>
+<p>A symmetric key is a small chunk of bits used as if it were a physical key. A symmetric cipher is any function that encrypts or decrypts bytes using a symmetric key; thus, they offer confidentiality. They are also sometimes called "data encapsulation mechanisms" (DEMs). Security comes from the difficulty of:</p>
+<ul>
+    <li>Encrypting or decrypting without the key</li>
+    <li>Guessing the key</li>
+</ul>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The message, also called "plaintext"</li>
+    <li>The key</li>
+    <li>Some algorithms may also have a nonce (number only used once), IV (initialization vector), or salt. These three terms mean the same: a randomly generated value which must be unique for each message</li>
+</ul>
+<p>Output: the encrypted message, also called "ciphertext".</p>
+<br>
+<p>Symmetric ciphers use the input key to derive internal keys which are used to actually encrypt the message. Depending on how they do so, there are two distinct categories:</p>
+<ul>
+    <li>Stream ciphers will produce a stream of seemingly random bits that are combined (XORed) to the message, bit by bit. Examples are RC4 (broken) and ChaCha20 (not).</li>
+    <li>Block ciphers will produce fixed length intermediate keys that are combined in a generally more complex way. Block ciphers only encrypt one very short message (or "block"), such as 128 bits. Examples include DES (broken) and AES (not). Block ciphers must be applied over and over throughout the message using a mode of operation. Examples are ECB (insecure) and CBC (not, but please don't use it and keep reading).</li>
+</ul>
+<h3>3.2. Hash</h3>
+<p>A hash function transform a message with arbitrary length into another with a fixed one, usually from 256 to 512 bits. They are one-way functions, often called PRF (pseudo-random functions). They offer integrity. Security comes from the difficulty of:</p>
+<ul>
+    <li>Recovering the input from the output (preimage)</li>
+    <li>Discovering another input that produces the same output (second preimage)</li>
+    <li>Finding any two inputs that produce the same output (collision)</li>
+</ul>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The plain text</li>
+    <li>Some hashes may support additional data that can be mixed with the plain text. This is generally used for creating contextualized ciphertexts; for instance, a secure application "CryptoChat" might set it to "CryptoChat-v1". This contributes to slightly higher security since generic rainbow tables cannot be used against contextual crypto. This term is used interchangeably with "customization string", "personalization string", or, in contrast to salt, "pepper", since this is fixed for all messages, unlike a nonce</li>
+</ul>
+<p>Output: the hashed data, also known as "digest".</p>
+<br>
+<p>Examples are MD5 (broken) and SHA-3 (not).</p>
+<h3>3.3. XOF</h3>
+<p>Extendable-output functions (XOFs) are variable-length hash functions. The output can be extended to any desired length. In some algorithms, this length must be fixed before the process starts, while in others one can keep producing bit after bit of digest nonstop. This makes a difference in the output: in a fixed-beforehand algorithm, a 1024 bit output and a 1025 bit one will be completely different.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The plain text</li>
+    <li>The length of the output</li>
+    <li>Possibly, additional data</li>
+</ul>
+<p>Output: the variable-sized digest.</p>
+<br>
+<p>Examples are cSHAKE-256 (good) and raw Keccak (not broken, but certainly a bad idea).</p>
+<h3>3.4. MAC</h3>
+<p>A MAC, or Message Authentication Code, is a signed hash. Therefore, they offer authenticity. A symmetric key is somehow mixed with the hash of the message, in such a way that if the key is known, then the hash is trustworthy, and thus the message can be verified for integrity with additional authentication guarantees. To verify, either the MAC is computed again and compared to the received one, or the algorithm gives a faster way for checking it.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The plain text</li>
+    <li>A symmetric key</li>
+    <li>Possibly, additional data</li>
+</ul>
+<p>Output: the MAC.</p>
+<br>
+<p>Examples are KMAC (good) and CBC-MAC (dangerous).</p>
+<h3>3.5. AEAD</h3>
+<p>AE mean Authenticated Encryption. They are cryptographic constructions built with a symmetric cipher and a MAC. If the MAC allows for additional data, then we call it AEAD, or Authenticated Encryption with Associated Data. AEAD is the pinnacle of general-purpose symmetric encryption, and it's what everyone uses (or should be using). An SC built with an AEAD guarantees the three properties. Additional security comes from guaranteed safe cryptocohesion.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The plaintext</li>
+    <li>A symmetric key</li>
+    <li>A nonce</li>
+    <li>Additional data</li>
+</ul>
+<p>Outputs:</p>
+<ul>
+    <li>The ciphertext</li>
+    <li>The MAC</li>
+</ul>
+<br>
+<p>Sometimes, the MAC is joined directly with the ciphertext; in this case, there's only one output. If this is not the case, concatenating both is a common and valid practice. Do note that you should never concatenate things in crypto if you don't know what you're doing, it will expose you to well-known attacks.</p>
+<br>
+<p>Good examples are ChaCha20-Poly1305 and AES-GCM. Any combination of cipher and MAC you come up with is very likely insecure.</p>
+<h3>3.6. KDF</h3>
+<p>KDFs, Key Derivation Functions, derive one or more keys from an input. These generated keys, also called DKM (derived keying material), can then be used in other algorithms. While a KDF does not offer the sought-after cryptoproperties, they are a central point in all modern cryptosystems. Security comes from the difficulty of:</p>
+<ul>
+    <li>Discovering the input from the DKMs</li>
+    <li>Correlating in any way the different produced keys</li>
+</ul>
+<br>
+<p>There's a subset of KDFs known as password hashing algorithms. These are intentionally slow KDFs that are used for deriving keys from a non-random user-chosen password. Their lack of speed protects against brute-force attacks.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The master key, passphrase, shared secret, or plaintext used as input</li>
+    <li>A salt, nonce, or counter, used to produce different keys</li>
+    <li>Often, associated data</li>
+</ul>
+<p>Output: the derived keying material.</p>
+<br>
+<p>Examples include HKDF (good), PBKDF2 (good, passphrase-oriented), and any trivial hash of concatenations you come up with (very likely insecure).</p>
+<h3>3.7. KW</h3>
+<p>KW is for Key Wrapping. A KW algorithm is a cryptographic construction that symmetrically encapsulates keys. They are used for protecting keys in untrusted storage or transmitting them over the wire. For the latter, KEMs are preferred, which are explained later. KWs offer confidentiality and integrity.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>The key to be protected</li>
+    <li>Another key to protect the first, also called "master key"</li>
+</ul>
+<p>Output: the encrypted key.</p>
+<br>
+<p>Examples are AESKW (good) and TDKW (bad).</p>
+<h2>4. Asymmetric Mechanism</h2>
+<p>Asymmetric mechanisms have two keys: a private key and a public key, this is called a "keypair". The public key is derived from the private key. Security often comes from the difficulty of recovering the private key from the public.</p>
+<h3>4.1. Asymmetric Encryption</h3>
+<p>In an asymmetric encryption scheme, the public key is used to encrypt a message, and the private key is used to decrypt it. Therefore, this offers confidentiality. Asymmetric encryption can usually encrypt only very short messages, so the few cryptosystems that use this do so for initializing the secure channel, the actual messages are encrypted symmetrically. Nowadays, asymmetric encryption algorithms are very rarely used, and a different approach (KEM/KEX+signature) is preferred.</p>
+<br>
+<p>For encryption, inputs:</p>
+<ul>
+    <li>The message</li>
+    <li>The public key of the recipient</li>
+    <li>Possibly a nonce</li>
+</ul>
+<p>The output is the ciphertext.</p>
+<br>
+<p>For decryption, inputs:</p>
+<ul>
+    <li>The ciphertext</li>
+    <li>The private key</li>
+</ul>
+<p>The output is the plaintext.</p>
+<br>
+<p>Examples are ElGamal (good) and RSA (good but dangerous if not used correctly).</p>
+<h3>4.2. Digital Signatures</h3>
+<p>In a digital signature algorithm, the private key is used to sign a message and the public key is used to verify it. This offers authentication. Note that it is discouraged to use the same keypair for encryption and signing: depending on the algorithm this is potentially insecure. Digital signatures are used everywhere and there are many algorithms for it.</p>
+<br>
+<p>For signing, inputs:</p>
+<ul>
+    <li>The message</li>
+    <li>The private key</li>
+    <li>Possibly a nonce</li>
+</ul>
+<p>The output is the signature, kind of like a MAC.</p>
+<br>
+<p>For verifying, inputs:</p>
+<ul>
+    <li>The message</li>
+    <li>Its signature</li>
+    <li>The public key</li>
+</ul>
+<p>The output is binary: pass or fail.</p>
+<br>
+<p>Examples are Ed25519 (good) and DSA (dangerous).</p>
+<h3>4.3. KEX</h3>
+<p>KEX is short for Key Exchange, one of the most important classes of modern cryptography. A key exchange algorithm focuses on generating a shared secret with two keypairs. Alice has her private key (a) and Bob's public key (B). Bob has his private key (b) and Alice's public key (A). Combining 'a' and 'B' gives the exact same result as combining 'b' and 'A'. Both parties, with completely different numbers, reach the same result.</p>
+<br>
+<p>The tricky point is to securely send the public keys over the wire: the channel must offer authenticity, because this is an interactive process and security does not begin with the first message. The shared secret must never be used as a key; instead, actual keys must be generated using a KDF.</p>
+<br>
+<p>If a key exchange is performed at the beginning of each messaging session, then it's called "ephemeral". An ephemeral KEX performed on an authentic channel offers a new cryptographic property: PFS, or Perfect Forward Secrecy; that is, if the outer SC is broken in the future, all previous sessions remain safe, because the actual key is never being sent.</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>My private key</li>
+    <li>The other party's public key (securely received)</li>
+</ul>
+<p>Output: the shared secret.</p>
+<br>
+<p>Examples are X25519 (good) and non-EC Diffie-Hellman (a bit dangerous).</p>
+<a href="https://jlxip.github.io/ecdh">Give KEX a try in the real world!</a><br>
+<h3>4.4. KEM</h3>
+<p>KEM is short for Key Encapsulation Mechanism. Unlike a key exchange, a KEM focuses on sending a symmetric key using asymmetric cryptography.</p>
+<br>
+<p>Most post-quantum mechanisms are KEMs.</p>
+<br>
+<p>Nowadays, asymmetric encryption is pretty much only used for the same purpose as a KEM. The latter is preferred because of their speed and simplicity (fewer pitfalls, harder to get wrong).</p>
+<br>
+<p>Inputs:</p>
+<ul>
+    <li>My randomly generated symmetric key</li>
+    <li>The other party's public key</li>
+    <li>Possibly a nonce</li>
+</ul>
+<p>Output: the encrypted symmetric key</p>
+<br>
+<p>Examples are ECIES (not actually a standalone KEM, but good) and FrodoKEM (very modern, its security is not yet 100% known).</p>
+<h2>5. RNG</h2>
+<p>RNG is short for Random Number Generator. In cryptography, we use CSPRNGs, or Cryptographically-Secure Pseudorandom Number Generators. These are algorithms capable of producing large quantities of indistinguishable and seemingly-random data (sometimes, terabytes of them) from a small input called "seed". Security comes from the difficulty of:</p>
+<ul>
+    <li>Recovering the seed</li>
+    <li>Guessing the previous or next produced bit</li>
+</ul>
+<br>
+<p>In the absolutely best case, a cryptographic algorithm is as secure as the random data that was put into it. If this random data was not generated correctly, then all security is lost. As an example, AES-256 gives 256 bits of security at maximum, but only if the used key has 256 bits of entropy.</p>
+<br>
+<p>Choosing a decent CSPRNG is important, but more so is gathering good entropy (for a good seed). This task is very difficult. True random does not exist, and one can only approach it so much. Flipping a coin is not random, but in most scenarios it's "random enough", since predicting a physical event is difficult. CPUs by themselves are incapable of producing random numbers good enough to use as entropy. While so-called TRNGs (true RNGs) exist, often in the form of physical hardware capable of generating good entropy, in the general use case randomness is gathered from external physical events. Computers find this easier to do with time measurements: mixing two clocks working at different frequencies with different accuracies is known to be a good entropy source. Mixing the extremely fast and accurate CPU clock with the slow and imprecise human brain gives very good results. The duration, speed, and acceleration of mouse movements and the time between keypresses are OK sources of entropy, or "pools". Several pools are mixed into what becomes the actual available entropy. This is implemented in all modern operating systems. However, giving an accurate estimation of entropy is difficult and most cryptographic certifications are very picky on what they allow. For the general personal use case, /dev/random in Linux is good enough (not urandom!)</p>
+<a href="https://blog.cloudflare.com/randomness-101-lavarand-in-production">Fun entropy</a><br>
+<br>
+<p>Examples of CSPRNGs are CTR_DRBG (good), Mersenne-Twister (PRNG, not a CSPRNG, must never be used for crypto), and Dual_EC_DRBG (intentionally broken and published by the NSA in 2006).</p>
+<h2>6. Additional Notes</h2>
+<h3>6.1. Side Channels</h3>
+<p>Even if your algorithm choice is top-notch, your parameterization is well studied, your implementation is free of bugs, and your operating system is 100% secure, you're not safe.</p>
+<br>
+<p>Each time a CPU accesses memory or performs a jump in the code, it leaves a footprint. This footprint may be in the form of very minor timing differences or power consumption fluctuations. It is known that accurately measuring these phenomena has a very real chance of leaking keys.</p>
+<br>
+<p>Good cryptographic implementations consider this and always consume the same amount of resources and perform exactly the same steps regardless of the input. No if statements.</p>
+<h3>6.2. Post-Quantum Cryptography</h3>
+<p>The slow and seemingly increasing capacity of quantum computers has open some questions regarding the future-proof expectations on our cryptography. This is why a lot of effort is being put right now into inventing new quantum-resistant crypto. This effort is slowly producing promising results, with many post-quantum (PQ) algorithms being in the process of getting standardized, mostly by NIST.</p>
+<br>
+<p>This is an awkward situation. We do not trust our current algorithms for the future, but the PQ ones are very new and we haven't had a long time to study them. This is why we do "hybridization": a mix of a classical mechanism and a PQ one. Only if both are broken, an adversary can break the secure channel.</p>
+<h3>6.3. Secure Channel Genesis</h3>
+<p>A secure channel can never be constructed from scratch starting from an insecure channel. Pre-shared information over a different secure channel is mandatory.</p>
+<br>
+<p>The best option for Alice for getting Bob's public key is asking him to give her a piece of paper with it. Since this is infeasible, having an intermediary, Chloe, is the second best choice. Chloe will give her public key to Alice in a piece of paper. It can also be a symmetric key, in which case it's called PSK, or pre-shared key. Later on, Chloe can sign Bob's public key and give it over an insecure channel to Alice. Since Alice trusts Chloe's public key, if she also trusts that Chloe is not a bad person, then she can be certain she has Bob's public key. Note how Chloe's keypair has created an authentic channel.</p>
+<br>
+<p>In the end, there's no way around the piece of paper. One must always get a key in hand in order to trust it. You connect to the internet securely because you already have the keys of many intermediaries, they were in your computer when you bought it. Here's a question that may trouble some: do you trust them?</p>
+<br>
+<br>
+<br>
+
+        </main>
+    </body>
+</html>

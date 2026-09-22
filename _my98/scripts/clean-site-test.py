@@ -27,7 +27,7 @@ def snapshot(root, destination, tree, env):
 
 
 def main():
-    root = Path(__file__).resolve().parent.parent
+    root = Path(__file__).resolve().parents[2]
     # Capture Git's selected index before clearing hook-local environment variables.
     tree = git(root, "write-tree")
     env = os.environ.copy()

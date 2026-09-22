@@ -1,0 +1,28 @@
+import assert from 'node:assert/strict';
+import {attachMatrixBridge,decodeDestination,openDestination} from '../../scripts/exit-matrix/bridge.js';
+const destination='https://example.com/path?q=a%20b#fragment';
+assert.equal(decodeDestination(encodeURIComponent(destination)),destination);
+for(const x of ['', '%', '%xx', 'javascript%3Aalert(1)', 'file%3A%2F%2Fx', 'https%3A%2F%2F', 'https%3A%2F%2Fa%40b', 'https%3A%2F%2Fe.test%0Afoo', 'https%3A%2F%2Fe.test%5Cfoo', 'x'.repeat(1537)]) assert.equal(decodeDestination(x),null,x);
+const events=[],style=new Map(),surface={style:{getPropertyValue:k=>style.get(k)||'',getPropertyPriority:()=>'',setProperty:(k,v)=>style.set(k,v)}};
+const callbacks=new Map();const machine={is_running:()=>true,keyboard_set_enabled:v=>events.push(['keyboard',v]),keyboard_send_scancodes:v=>events.push(['keys',v]),add_listener:(k,f)=>callbacks.set(k,f),remove_listener:k=>callbacks.delete(k)};
+const pointer={activate:()=>events.push(['activate']),release:()=>events.push(['release'])};
+const opens=[],browser={open:(...args)=>{opens.push(args);return null;},location:{assign:url=>opens.push(url)}};
+const controller=attachMatrixBridge({machine,surface,pointer,browser});
+const feed=s=>{for(const b of Buffer.from(s))callbacks.get('serial0-output-byte')(b);};
+assert.equal(attachMatrixBridge({machine,surface,pointer,browser}),controller);
+feed('JLX98/1 EX');assert.equal(controller.exited,false);
+feed('IT\n');await Promise.resolve();assert.equal(controller.exited,true);assert.equal(style.get('cursor'),'none');
+feed('JLX98/1 EXIT\n');await Promise.resolve();assert.equal(events.filter(x=>x[0]==='keys').length,1);
+feed('JLX98/1 OPEN '+encodeURIComponent(destination)+'\n');assert.deepEqual(opens,[['about:blank','_blank'],destination]);
+feed('garbage\nJLX98/9 EXIT\nJLX98/1 OPEN javascript%3Aalert(1)\n'+ 'x'.repeat(2000)+'\n');assert.equal(opens.length,2);
+feed('JLX98/1 OPEN ');await new Promise(r=>setTimeout(r,2050));feed(encodeURIComponent(destination)+'\n');assert.equal(opens.length,2);
+feed('JLX98/1 OPEN '+encodeURIComponent(destination)+'\n');assert.equal(opens.length,4);
+controller.destroy();assert.equal(callbacks.size,0);
+const next=attachMatrixBridge({machine,surface,pointer,browser});feed('JLX98/1 EXIT\n');await Promise.resolve();assert.equal(events.filter(x=>x[0]==='keys').length,1);next.destroy();
+const actions=[],tab={opener:'old',location:{replace:url=>{assert.equal(tab.opener,null);actions.push(url);}}};
+assert.equal(openDestination(destination,{open:(...args)=>{assert.deepEqual(args,['about:blank','_blank']);return tab;}}),'new');assert.deepEqual(actions,[destination]);
+console.log('PASS framing, bounds, malformed/expired messages, one-way session, keyboard/cursor, opener isolation and blocked fallback');
+
+const rejected=[],broken={...machine,keyboard_send_scancodes:()=>Promise.reject(new Error('keyboard unavailable'))};
+const failed=attachMatrixBridge({machine:broken,surface,pointer,browser,onError:e=>rejected.push(e.message)});
+feed('JLX98/1 EXIT\n');await new Promise(r=>setTimeout(r,0));assert.equal(failed.exited,false);assert.deepEqual(rejected,['keyboard unavailable']);failed.destroy();

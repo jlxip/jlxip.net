@@ -1,0 +1,30 @@
+<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>ANS085 isolated fixture</title>
+<input id="input" type="file"><input id="state" type="file" hidden><input id="media" type="file" hidden><div id="screen" style="touch-action:none"><div style="white-space:pre;font:16px monospace"></div><canvas></canvas></div>
+<script type="module">
+import {V86} from './app/build/libv86.mjs';
+import {Slop86Disk,DiskBuffer} from './app/build/disk/web/client.js';
+import {captureMachineState,restoreMachineState} from './app/src/browser/machine-state.js';
+import {setupDirectPointer} from './direct-pointer.js';
+import {attachMatrixBridge} from './bridge.js';
+const assets=['build/libv86.mjs','build/v86.wasm','bios/seabios.bin','bios/bochs-vgabios.bin'];
+window.config={memory_size:512*1048576,vga_memory_size:8*1048576,boot_order:0x312,acpi:false,network:'ne2k'};
+window.compatibility='my98-state-adapter-1:'+(await Promise.all(assets.map(async p=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',await(await fetch('./app/'+p)).arrayBuffer())),b=>b.toString(16).padStart(2,'0')).join('')))).join(':');
+window.disk=await Slop86Disk.create();
+const wasm=await WebAssembly.compile(await(await fetch('./app/build/v86.wasm')).arrayBuffer());
+async function createMachine(adapter,config){
+ const machine=new V86({wasm_fn:async imports=>(await WebAssembly.instantiate(wasm,imports)).exports,...config,
+  hda:{disk_adapter:adapter},bios:{url:'./app/bios/seabios.bin'},vga_bios:{url:'./app/bios/bochs-vgabios.bin'},
+  net_device:{type:'ne2k',relay_url:'wss://relay.widgetry.org/',mtu:1500},
+  screen:{container:document.querySelector('#screen'),use_graphical_text:false},autostart:false});
+ await new Promise(resolve=>machine.add_listener('emulator-loaded',resolve));return machine;
+}
+window.boot=async()=>{window.adapter=new DiskBuffer(disk,(await disk.describe()).size,console.error);window.vm=await createMachine(adapter,config);listen();vm.run();};
+window.restore=async input=>{const r=await restoreMachineState({disk,input,compatibility,createMachine,onDiskError:console.error});window.vm=r.machine;window.adapter=r.adapter;window.config=r.config;listen();vm.run();};
+function listen(){window.serial='';vm.add_listener('serial0-output-byte',b=>{serial+=String.fromCharCode(b);});}
+window.attach=()=>{const display=document.querySelector('#screen'),surface=display.querySelector('canvas');window.pointer=setupDirectPointer({display,getSurface:()=>surface,getMachine:()=>vm,focus:()=>surface.focus()});window.bridge=attachMatrixBridge({machine:vm,surface,pointer,onExit:()=>window.exits=(window.exits||0)+1});};
+window.send=async s=>{for(const c of s){if(c===':')vm.keyboard_send_scancodes([0x2a,0x34,0xb4,0xaa]);else if(c==='\\')vm.keyboard_send_scancodes([0xe0,0x38,0x29,0xa9,0xe0,0xb8]);else if(c==='_')vm.keyboard_send_scancodes([0x2a,0x35,0xb5,0xaa]);else if(c==='-')vm.keyboard_send_scancodes([0x35,0xb5]);else if(c==='/')vm.keyboard_send_scancodes([0x2a,0x08,0x88,0xaa]);else await vm.keyboard_send_text(c,20);await new Promise(r=>setTimeout(r,20));}};
+window.run=async s=>{const previous=vm.keyboard_adapter.emu_enabled;vm.keyboard_set_enabled(true);try{vm.keyboard_send_scancodes([0xe0,0x5b,0x13,0x93,0xe0,0xdb]);await new Promise(r=>setTimeout(r,900));vm.keyboard_send_scancodes([0x1d,0x1e,0x9e,0x9d]);await send(s);vm.keyboard_send_scancodes([0x1c,0x9c]);}finally{vm.keyboard_set_enabled(previous);}};
+window.download=(blob,name)=>{const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();};
+window.capture=async()=>captureMachineState({machine:vm,adapter,disk,config,compatibility});
+window.ready=true;
+</script>

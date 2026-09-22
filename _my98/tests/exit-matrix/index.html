@@ -1,0 +1,56 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html><head><title>Exit the matrix test</title>
+<style type="text/css" id="presentation">* { cursor: default !important; }</style>
+<style type="text/css">body { background: #f4f1e7; color: #142d25; font: 20px Arial; margin: 36px; } button { font: 22px Arial; padding: 12px; } p { margin: 24px 0; }</style>
+<script type="text/javascript">
+var pending = false, revealed = false, timeout = 0, completedAction = '';
+function element(id) { return document.all ? document.all[id] : document.getElementById(id); }
+function requestBridge(path) {
+    if(pending || (revealed && path == '/__bridge/exit')) return false;
+    pending = true;
+    element('status').innerText = 'Waiting...';
+    window.frames['bridgeframe'].location.replace(path);
+    window.clearTimeout(timeout);
+    timeout = window.setTimeout('bridgeTimeout()', 4000);
+    return false;
+}
+function bridgeTimeout() {
+    if(pending) { pending = false; element('status').innerText = 'Bridge failed. You can retry.'; }
+}
+function jlx98Done(action) { completedAction = action; window.setTimeout('finishBridge()', 100); }
+function finishBridge() {
+    var action = completedAction;
+    window.clearTimeout(timeout);
+    pending = false;
+    if(action == 'exit' && !revealed) {
+        revealed = true;
+        document.styleSheets[0].disabled = true;
+        element('wait').innerText = 'Check typed text';
+    }
+    element('status').innerText = revealed ? 'Desktop revealed. IE stays open.' : 'Link sent.';
+}
+function waitOrReport() {
+    if(revealed) return openLink('https://example.com/?typed=' + element('text').value);
+    document.body.style.cursor = 'wait'; window.setTimeout('endWait()', 2000); return false;
+}
+function endWait() { document.body.style.cursor = ''; }
+function encodeURL(url) {
+    var result = '', hex = '0123456789ABCDEF', i, n;
+    for(i = 0; i < url.length; i++) {
+        n = url.charCodeAt(i);
+        if(n < 33 || n > 126) return '';
+        result += '%' + hex.charAt(n >> 4) + hex.charAt(n & 15);
+    }
+    return result;
+}
+function openLink(url) { return requestBridge('/__bridge/open?url=' + encodeURL(url)); }
+</script></head><body>
+<iframe name="bridgeframe" src="about:blank" width="1" height="1" frameborder="0" style="position:absolute;left:-2000px;top:0"></iframe>
+<h1>Exit the matrix</h1>
+<p><button id="exit" onclick="return requestBridge('/__bridge/exit');">Exit the matrix</button></p>
+<p><a id="external" href="https://example.com/" onclick="return openLink(this.href);">Open external link</a></p>
+<p>Selectable text and <input id="text" type="text" value="After exit, type here"></p>
+<p id="status">Presentation ready.</p>
+<p><button id="wait" onclick="return waitOrReport();">Wait cursor</button></p>
+<p><script type="text/javascript">document.write(navigator.userAgent);</script></p>
+</body></html>

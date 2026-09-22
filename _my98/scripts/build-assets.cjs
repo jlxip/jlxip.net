@@ -17,7 +17,7 @@ if (process.argv[2] === "bundle") {
         + ";globalThis.JLXIP_ASSETS=" + JSON.stringify(assets) + ";\n";
     write("build/my98.js", source);
 } else if (process.argv[2] === "minify") {
-    const esbuild = require("../my98/node_modules/esbuild");
+    const esbuild = require("../../my98/node_modules/esbuild");
     const source = fs.readFileSync("build/my98.js", "utf8").trimEnd();
     const marker = ";globalThis.JLXIP_ASSETS=";
     const split = source.lastIndexOf(marker);
@@ -32,5 +32,5 @@ if (process.argv[2] === "bundle") {
     });
     write("build/my98.min.js", result.code);
 } else {
-    throw new Error("Usage: node scripts/build-assets.cjs bundle|minify");
+    throw new Error("Usage: node _my98/scripts/build-assets.cjs bundle|minify");
 }
