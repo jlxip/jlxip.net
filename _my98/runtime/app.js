@@ -2,11 +2,14 @@ import {CID} from 'multiformats/cid';
 import {publicKeyFromMultihash} from '@libp2p/crypto/keys';
 import {resolveIpns} from '../../my98/src/disk/web/resolution.js';
 import {attachMatrixBridge} from '../scripts/exit-matrix/bridge.js';
+import {guardPresentationInput} from './presentation-input.js';
 
 const runtimeURL = path => new URL('../my98-runtime/' + path, import.meta.url);
 // Content bounds (with breathing room) of the published 800×600 IE home page.
 // Revisit these bounds if the guest page is redesigned; other resolutions fit in full.
 const PRESENTATION = Object.freeze({width:800,height:600,left:8,top:152,right:208,bottom:448});
+// Keep the pointer away from IE's and Windows' auto-hide edges while presenting.
+const PRESENTATION_EDGE_CROP = 8;
 const abortError = () => Object.assign(new Error('Loading cancelled'), {code:'CANCELLED'});
 const check = signal => {if(signal.aborted) throw abortError();};
 async function readAsset(path, signal) {
@@ -52,6 +55,7 @@ export class FutureSession {
         this.resize=()=>this.fit();window.addEventListener('resize',this.resize);
         this.gesture=()=>{this.machine?.speaker_adapter?.resume();};
         this.display.addEventListener('pointerdown',this.gesture,true);
+        this.input=guardPresentationInput({display:this.display,unlocked:()=>!!this.bridge?.exited});
         this.leave=()=>{void this.destroy();};window.addEventListener('pagehide',this.leave);
     }
     status(text, error=false) {
@@ -65,19 +69,25 @@ export class FutureSession {
         const aspect=this.machine.screen_get_aspect_ratio() || canvas.width/canvas.height;
         let width=Math.min(W,H*aspect),height=width/aspect;
         let left=(W-width)/2,top=(H-height)/2;
+        let edgeCrop=0;
         const p=PRESENTATION;
         if(!this.bridge?.exited && canvas.width===p.width && canvas.height===p.height) {
+            edgeCrop=PRESENTATION_EDGE_CROP;
             const margin=Math.min(24,W/4,H/4);
             const scale=Math.min(Math.max(1,Math.min(W/p.width,H/p.height)),
                 (W-2*margin)/(p.right-p.left),(H-2*margin)/(p.bottom-p.top));
             width=p.width*scale;height=p.height*scale;
             left=Math.max((W-width)/2,margin-p.left*scale);top=(H-height)/2;
         }
-        const frame=[width,height,left,top];
-        if(!this.frame || frame.some((value,index)=>value!==this.frame[index]))this.pointer?.release();
+        const frame=[width,height,left,top,edgeCrop];
+        if(!this.frame || frame.some((value,index)=>value!==this.frame[index])) {
+            this.input.reset();this.pointer?.release();
+        }
         this.frame=frame;
         this.display.style.width=width+'px';this.display.style.height=height+'px';
         this.display.style.left=left+'px';this.display.style.top=top+'px';
+        // Clip the input surface too; the full canvas rect still maps guest coordinates.
+        this.display.style.clipPath=edgeCrop ? `inset(${100*edgeCrop/canvas.height}% 0)` : 'none';
         const scaleX=width/canvas.width,scaleY=height/canvas.height;
         canvas.style.imageRendering=Number.isInteger(scaleX)&&Number.isInteger(scaleY)?'pixelated':'auto';
     }
@@ -110,6 +120,7 @@ export class FutureSession {
         } catch(error) {await vm.destroy().catch(()=>{});throw error;}
     }
     async disposeSession() {
+        this.input.reset();
         this.bridge?.destroy();this.bridge=undefined;
         this.pointer?.destroy();this.pointer=undefined;
         this.observer?.disconnect();this.observer=undefined;
@@ -189,6 +200,7 @@ export class FutureSession {
         this.disk?.cancel();this.disk?.terminate();
         window.removeEventListener('resize',this.resize);window.removeEventListener('pagehide',this.leave);
         this.display.removeEventListener('pointerdown',this.gesture,true);this.retry.onclick=null;
+        this.input.destroy();
         await this.disposeSession();
     }
 }

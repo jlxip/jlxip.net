@@ -16,6 +16,15 @@ async function checkFrame(page,presentation) {
  const {width:W,height:H}=viewport,scale=rect.width/800,margin=Math.min(24,W/4,H/4);
  assert(Math.abs(rect.width/rect.height-4/3)<.01);
  assert(Math.abs(rect.y+rect.height/2-H/2)<1);
+ const clipping=await page.locator('#display').evaluate(e=>getComputedStyle(e).clipPath);
+ if(presentation) {
+  assert.match(clipping,/^inset\(/,'presentation clips auto-hide edges');
+  const hits=await page.evaluate(({rect,W,H})=>[rect.y+rect.height/600,rect.y+rect.height*599/600].filter(y=>y>=0&&y<H).map(y=>{
+   const target=document.elementFromPoint(Math.min(W-1,Math.max(1,rect.x+rect.width/2)),y);
+   return !!target?.closest('#display');
+  }),{rect,W,H});
+  assert(hits.every(hit=>!hit),'cropped strips do not send guest pointer events');
+ } else assert.equal(clipping,'none','Exit restores the full input surface');
  if(presentation) {
   assert(rect.x+8*scale>=margin-1,'left content margin');
   assert(rect.x+208*scale<=W-margin+1,'all links fit horizontally');
@@ -60,12 +69,20 @@ try {
    async function clickGuest(x,y){const bounds=await page.locator('canvas').boundingBox();const px=bounds.x+x/800*bounds.width,py=bounds.y+y/600*bounds.height;if(mobile)await page.touchscreen.tap(px,py);else await page.mouse.click(px,py,{delay:80});}
    if(!mobile) {
     await page.evaluate(()=>{window.buttons=[];session.machine.emulator_bus.register('mouse-click',value=>buttons.push(value));});
+    const start=await page.locator('canvas').boundingBox();
+    const x=start.x+24/800*start.width,y=start.y+231/600*start.height;
+    await page.mouse.click(x,y,{button:'right'});
+    await page.mouse.move(x,y);await page.mouse.down();
+    await page.mouse.move(x+100,y+50,{steps:10});await page.mouse.up();
+    await page.waitForTimeout(500);
+    assert.deepEqual(await page.evaluate(()=>opened),[],'drag does not open a link');
+    assert.deepEqual(await page.evaluate(()=>buttons),[],'right click and drag never press a guest button');
     const b=await page.locator('canvas').boundingBox();await page.mouse.move(b.x+b.width/2,b.y+b.height/2);await page.mouse.down();
-    assert.equal(await page.evaluate(()=>buttons.at(-1)[0]),true);
+    assert.deepEqual(await page.evaluate(()=>buttons),[],'left press deferred until release');
    }
    for(const [width,height] of [[1600,900],[550,900],[390,844],[390,220],[240,200]]) {
     await resizeViewport(page,{width,height});
-    if(!mobile) {assert.equal(await page.evaluate(()=>buttons.at(-1)[0]),false);await page.mouse.up();}
+    if(!mobile) {assert.equal(await page.evaluate(()=>buttons.some(value=>value.some(Boolean))),false);await page.mouse.up();}
     frames.push(await checkFrame(page,true));
     await page.screenshot({path:path.join(output,`${name}-${width}x${height}-presentation.png`)});
    }
@@ -82,6 +99,16 @@ try {
    assert.deepEqual(await page.evaluate(()=>scancodes),[[0x57,0xd7]]);
    await page.screenshot({path:path.join(output,name+'-exit.png')});
    await resizeViewport(page,initialViewport);await checkFrame(page,false);
+   if(!mobile) {
+    await page.evaluate(()=>buttons=[]);
+    const b=await page.locator('canvas').boundingBox();
+    await page.mouse.click(b.x+b.width*.7,b.y+b.height*.7,{button:'right'});
+    assert(await page.evaluate(()=>buttons.some(value=>value[2])),'guest right click restored after Exit');
+    await page.keyboard.press('Escape');
+    await page.mouse.move(b.x+b.width*.6,b.y+b.height*.6);await page.mouse.down();
+    assert.equal(await page.evaluate(()=>buttons.at(-1)[0]),true,'guest press immediate after Exit');
+    await page.mouse.move(b.x+b.width*.65,b.y+b.height*.65,{steps:5});await page.mouse.up();
+   }
    await page.evaluate(()=>{window.hostKeys=[];session.machine.emulator_bus.register('keyboard-code',code=>hostKeys.push(code));});
    await clickGuest(180,98);await page.keyboard.press('Control+a',{delay:100});await page.keyboard.type('about:blank',{delay:70});await page.keyboard.press('Enter',{delay:100});await page.waitForTimeout(4000);
    assert((await page.evaluate(()=>hostKeys.length))>=24);assert.deepEqual(errors,[]);

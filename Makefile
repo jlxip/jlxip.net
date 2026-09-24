@@ -19,5 +19,6 @@ site-test-clean:
 
 .PHONY: future-test
 future-test: all
+	node _my98/tests/presentation-input.mjs
 	cd my98 && CARGO_TARGET_DIR="$(CURDIR)/my98/build/disk-target" cargo build --manifest-path src/disk/Cargo.toml --locked --release --example compat
 	node _my98/tests/future.mjs
