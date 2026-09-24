@@ -11,5 +11,7 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o /tmp/rustup.sh 
     && sh /tmp/rustup.sh -y --profile minimal --default-toolchain 1.89.0 --target wasm32-unknown-unknown \
     && rm /tmp/rustup.sh
 ENV RUSTUP_TOOLCHAIN=1.89.0
+RUN cargo install wasm-bindgen-cli --version 0.2.100 --locked --root /opt/wasm-bindgen
+ENV WASM_BINDGEN=/opt/wasm-bindgen/bin/wasm-bindgen
 WORKDIR /work
 CMD ["sh", ".github/workflows/ci/build.sh"]

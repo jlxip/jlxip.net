@@ -1,19 +1,14 @@
 .DEFAULT_GOAL := all
-.PHONY: all emulator clean
+.PHONY: all runtime clean
 
-all: build/my98.min.js
+all: runtime
 
-emulator:
-	$(MAKE) -C my98 emulator node_modules/.package-lock.json
-
-build/my98.js: Makefile _my98/scripts/build-assets.cjs emulator
-	node _my98/scripts/build-assets.cjs bundle
-
-build/my98.min.js: build/my98.js _my98/scripts/build-assets.cjs
-	node _my98/scripts/build-assets.cjs minify
+runtime:
+	$(MAKE) -C my98 emulator disk
+	node _my98/scripts/build-assets.cjs
 
 clean:
-	rm -f build/my98.min.js build/my98.min.js.tmp build/my98.js.tmp
+	rm -rf build/future build/my98-runtime
 
 .PHONY: hooks site-test-clean
 hooks:
@@ -21,3 +16,8 @@ hooks:
 
 site-test-clean:
 	python3 _my98/scripts/clean-site-test.py
+
+.PHONY: future-test
+future-test: all
+	cd my98 && CARGO_TARGET_DIR="$(CURDIR)/my98/build/disk-target" cargo build --manifest-path src/disk/Cargo.toml --locked --release --example compat
+	node _my98/tests/future.mjs

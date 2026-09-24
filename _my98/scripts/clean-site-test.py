@@ -46,7 +46,7 @@ def main():
         snapshot(root, source, tree, env)
         # Shared clones refer to host object stores. Materialize self-contained Git
         # metadata so submodule preparation also works inside the container.
-        for repo in (source, source / "my98", source / "my98/slop86"):
+        for repo in (source, source / "my98", source / "my98/vendor/slop86"):
             subprocess.run(["git", "-C", str(repo), "repack", "-a", "-d"], env=env, check=True, stdout=log, stderr=subprocess.STDOUT)
             (repo / ".git/objects/info/alternates").unlink(missing_ok=True)
 

@@ -1,0 +1,183 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">
+<html lang="en">
+<head>
+    <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>jlxip</title>
+
+    <!-- Keep this stylesheet first: finishBridge() disables it on exit. -->
+    <style type="text/css" id="presentation">
+        * {
+            cursor: default !important;
+        }
+    </style>
+
+    <style type="text/css">
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            background: #000;
+            color: #aaaaaa;
+            font-family: "JlxiP VGA DOS", "Courier New", monospace;
+            font-size: 16px;
+            margin: 0;
+        }
+
+        /* A layout table keeps vertical centering compatible with IE5. */
+        #layout {
+            width: 100%;
+            height: 100%;
+            border-collapse: collapse;
+            font-size: 16px;
+            font-family: "JlxiP VGA DOS", "Courier New", monospace;
+        }
+
+        #layout td {
+            vertical-align: middle;
+            padding: 8px;
+        }
+
+        #content {
+            margin: 0 auto;
+            max-width: 80ch;
+        }
+
+        h1 {
+            font-size: 32px;
+            font-weight: normal;
+        }
+
+        #links {
+            line-height: 32px;
+        }
+
+        a,
+        a:visited {
+            color: #aaaaaa;
+        }
+
+        #status {
+            position: absolute;
+            bottom: 8px;
+            left: 8px;
+            margin: 0;
+            font-size: 0.8em;
+        }
+    </style>
+
+    <script type="text/javascript">
+        var pending = false;
+        var revealed = false;
+        var timeout = 0;
+        var completedAction = '';
+
+        function element(id) {
+            return document.all ? document.all[id] : document.getElementById(id);
+        }
+
+        // Send an action to jlxip98 through the hidden iframe.
+        function requestBridge(path) {
+            if (pending || (revealed && path == '/__bridge/exit')) {
+                return false;
+            }
+
+            pending = true;
+            element('status').innerText = '';
+            window.frames['bridgeframe'].location.replace(path);
+            window.clearTimeout(timeout);
+
+            // String callbacks are intentional for compatibility with IE5.
+            timeout = window.setTimeout('bridgeTimeout()', 4000);
+
+            return false;
+        }
+
+        function bridgeTimeout() {
+            if (pending) {
+                pending = false;
+                element('status').innerText = 'Bridge failed. You can retry.';
+            }
+        }
+
+        // Called by the response loaded in the bridge iframe.
+        function jlx98Done(action) {
+            completedAction = action;
+            window.setTimeout('finishBridge()', 100);
+        }
+
+        function finishBridge() {
+            var action = completedAction;
+
+            window.clearTimeout(timeout);
+            pending = false;
+
+            if (action == 'exit' && !revealed) {
+                revealed = true;
+                document.styleSheets[0].disabled = true;
+            }
+
+            element('status').innerText = '';
+        }
+
+        function encodeURL(url) {
+            var result = '';
+            var hex = '0123456789ABCDEF';
+            var i;
+            var n;
+
+            for (i = 0; i < url.length; i++) {
+                n = url.charCodeAt(i);
+
+                if (n < 33 || n > 126) {
+                    return '';
+                }
+
+                result += '%' + hex.charAt(n >> 4) + hex.charAt(n & 15);
+            }
+
+            return result;
+        }
+
+        function openLink(url) {
+            return requestBridge('/__bridge/open?url=' + encodeURL(url));
+        }
+    </script>
+</head>
+
+<body>
+    <!-- Transport for bridge requests; kept outside the visible page. -->
+    <iframe
+        name="bridgeframe"
+        src="about:blank"
+        width="1"
+        height="1"
+        frameborder="0"
+        style="position:absolute;left:-2000px;top:0"
+    ></iframe>
+
+    <table id="layout" border="0" cellspacing="0" cellpadding="0">
+        <tr>
+            <td>
+                <div id="content">
+                    <h1>jlxip</h1>
+
+                    <div id="links">
+                        <a href="https://my98.lol" onclick="return openLink(this.href);">my98</a><br>
+                        <a href="https://jlxip.github.io/ecdh" onclick="return openLink(this.href);">ECDH</a><br>
+                        <a href="https://youtube.com/jlxip" onclick="return openLink(this.href);">YouTube</a><br>
+                        <a href="https://jlxip.net/TFG.pdf" onclick="return openLink(this.href);">Bachelor's thesis</a><br>
+                        <a href="https://jlxip.net/crypto101.html" onclick="return openLink(this.href);">Crypto 101</a><br>
+                        <a href="https://github.com/jlxip" onclick="return openLink(this.href);">GitHub</a><br>
+                        <a id="exit" href="/__bridge/exit" onclick="return requestBridge('/__bridge/exit');">Exit The Matrix</a>
+                    </div>
+                </div>
+            </td>
+        </tr>
+    </table>
+
+    <p id="status"></p>
+</body>
+</html>
