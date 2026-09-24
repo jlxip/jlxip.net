@@ -21,16 +21,17 @@ try {
   const browser=await type.launch();
   try {
    const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1000,height:800},isMobile:mobile,hasTouch:mobile});
+   let releaseCandidate;await context.exposeFunction('releaseCandidateForTest',()=>releaseCandidate?.());
    await context.addInitScript(()=>{
     // WebKit interception races immediate blob URL revocation for v86's scheduler Worker.
     // Real-publication acceptance runs without HTTP interception or this workaround.
     const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>setTimeout(()=>revoke(url),1000);
-    const Original=window.Worker;window.activeWorkers=new Set();window.Worker=class extends Original{constructor(...args){super(...args);activeWorkers.add(this);}terminate(){activeWorkers.delete(this);return super.terminate();}};});await context.routeWebSocket('**/*',s=>s.close());
+    const Original=window.Worker;window.activeWorkers=new Set();window.Worker=class extends Original{constructor(...args){super(...args);activeWorkers.add(this);}set onmessage(callback){super.onmessage=event=>{callback?.call(this,event);if(window.releaseStateOnDecompress&&event.data?.type==='progress'&&event.data.phase==='decompress')void window.releaseCandidateForTest().catch(()=>{});};}terminate(){activeWorkers.delete(this);return super.terminate();}};});await context.routeWebSocket('**/*',s=>s.close());
    // Produce an authenticated real VM state using only public fixture credentials.
    if(!saved){
    const owner=await context.newPage();
-   await owner.route('**/future.html',async route=>{const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('window.session = module.start();','window.module = module;')});});
-   await owner.goto(server.url+'/future.html');await owner.waitForFunction(()=>window.module);
+   await owner.route('**/index.html',async route=>{const response=await route.fetch();await route.fulfill({response,body:(await response.text()).replace('window.session = module.start();','window.module = module;')});});
+   await owner.goto(server.url+'/index.html');await owner.waitForFunction(()=>window.module);
    await owner.evaluate(async()=>{document.body.insertAdjacentHTML('beforeend','<input id="fixture" type="file">');});
    await owner.locator('#fixture').setInputFiles(fixture.file);
    saved=await owner.evaluate(async()=>{
@@ -43,17 +44,20 @@ try {
     const vm=await session.createMachine(adapter,config,container,new AbortController().signal);
     vm.run();await new Promise(r=>setTimeout(r,100));await vm.stop();vm.v86.cpu.mem8[0x70000]=41;await disk.write(10000,new Uint8Array([42]));
     const result=await r.captureMachineState({machine:vm,adapter,disk,config,compatibility:r.compatibility});
+    for(let offset=8*1048576;offset<10*1048576;offset+=65536)crypto.getRandomValues(vm.v86.cpu.mem8.subarray(offset,offset+65536));
+    const large=await r.captureMachineState({machine:vm,adapter,disk,config,compatibility:r.compatibility});
+    vm.v86.cpu.mem8.fill(0,8*1048576,10*1048576);
     const bad=await disk.saveState(new ArrayBuffer(100),{version:1,config,compatibility:'wrong-build',running:true});
     const nextBase=await disk.save();
     if(await disk.exportReadOnlyKey()!==readKey)throw Error('Credential changed after saving');
     vm.v86.cpu.mem8[0x70000]=43;
     const next=await r.captureMachineState({machine:vm,adapter,disk,config,compatibility:r.compatibility});
-    const data={bytes:Array.from(new Uint8Array(await result.blob.arrayBuffer())),bad:Array.from(new Uint8Array(await bad.blob.arrayBuffer())),next:Array.from(new Uint8Array(await next.blob.arrayBuffer())),nextDisk:Array.from(new Uint8Array(await nextBase.download.blob.arrayBuffer())),readKey};
+    const data={large:Array.from(new Uint8Array(await large.blob.arrayBuffer())),bytes:Array.from(new Uint8Array(await result.blob.arrayBuffer())),bad:Array.from(new Uint8Array(await bad.blob.arrayBuffer())),next:Array.from(new Uint8Array(await next.blob.arrayBuffer())),nextDisk:Array.from(new Uint8Array(await nextBase.download.blob.arrayBuffer())),readKey};
     await vm.destroy();adapter.dispose();await disk.close();await session.destroy();return data;
    });await owner.close();console.log('Fixture state captured');
    }
    const profile={version:2,cid:fixture.diskCid,origin:{kind:'state',sha256:createHash('sha256').update(Buffer.from(saved.bytes)).digest('hex')},unitBytes:65536,ranges:[[1,1],...Array(31).fill(null)]};
-   let publication=await fixture.publishState(Buffer.from(saved.bytes),undefined,[profile]),mode='good',requests=0,workerCount=0;const profileRequests=[];
+   let publication=await fixture.publishState(Buffer.from(saved.bytes),undefined,[profile]),mode='good',requests=0,workerCount=0,progressive;const profileRequests=[];
    fixture.delays.set(publication.profilesCid,1500);
    await context.route('**/build/future/config.json',route=>{
     const bytes=Buffer.from(saved.readKey.slice(11),'base64url');
@@ -70,6 +74,15 @@ try {
     if(url.origin===server.url)return route.fallback();
     if(url.pathname.includes('/ipns/')){
      requests++;
+     if(mode==='progressive-decompress') {
+      const first=url.hostname==='piensa.jlxip.net';if(!first)await progressive.gate;
+      return fulfill({status:200,contentType:'application/vnd.ipfs.ipns-record',body:first?progressive.old:progressive.next});
+     }
+     if(mode==='progressive') {
+      const first=url.hostname==='piensa.jlxip.net',newer=url.hostname==='oregon.jlxip.net';
+      if(!first)await new Promise(r=>setTimeout(r,newer?progressive.delay:5500));
+      return fulfill({status:200,contentType:'application/vnd.ipfs.ipns-record',body:first?progressive.old:progressive.next});
+     }
      if(mode==='network')return fulfill({status:503,body:'offline'});
      const response=await fetch(fixture.gateway+'/ipns/'+identity.ipnsName);
      // The first endpoint is stale. The resolver must select a newer signed record.
@@ -79,6 +92,7 @@ try {
     }
     if(url.pathname.startsWith('/routing/v1/providers/'))return fulfill({status:200,contentType:'application/json',body:JSON.stringify({Providers:[{Schema:'peer',ID:identity.ipnsName,Protocols:['transport-ipfs-gateway-http'],Addrs:['/dns4/fixture.example.com/tcp/443/https']}]})+'\n'});
     if(url.pathname.startsWith('/ipfs/')){
+     if(mode==='progressive-decompress')await new Promise(r=>setTimeout(r,100));
      const response=await fetch(fixture.gateway+url.pathname+url.search);
      return fulfill({status:response.status,contentType:response.headers.get('content-type')||'text/plain',body:Buffer.from(await response.arrayBuffer())});
     }
@@ -87,7 +101,7 @@ try {
    await context.route(/^https?:\/\//,async route=>{try{await routeNetwork(route);}catch{await route.abort().catch(()=>{});}});
    const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));page.on('console',m=>{if(m.type()==='error')console.log(name,m.text());});
    page.on('worker',()=>workerCount++);
-   async function load(expectError=false){await page.goto(server.url+'/future.html');await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:60000});assert.equal(await page.locator('#retry').isVisible(),expectError,await page.locator('#status').textContent());}
+   async function load(expectError=false){await page.goto(server.url+'/index.html');await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:60000});assert.equal(await page.locator('#retry').isVisible(),expectError,await page.locator('#status').textContent());if(expectError)assert.equal(await page.locator('#status').textContent(),'Something went wrong. Please try again.');}
    await load();console.log(name,'restored');
    assert.equal(await page.evaluate(()=>activeWorkers.size),2);
    assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8[0x70000]),41);
@@ -129,11 +143,73 @@ try {
    assert.equal(await page.evaluate(()=>!!document.pointerLockElement),false);
    await page.screenshot({path:`build/future-tests/${name}-restored.png`});
    for(const failure of ['network','bad-signature','expired','no-state','wrong-key','wrong-identity','legacy-key']){mode=failure;await load(true);assert.equal(await page.locator('#display').isVisible(),false);assert.equal(await page.evaluate(()=>!!session.machine||!!session.disk),false);assert.equal(await page.evaluate(()=>activeWorkers.size),0);}
-   mode='good';await fixture.publishState(Buffer.from(saved.bad));await load(true);assert.match(await page.locator('#status').textContent(),/different Windows runtime/);
+   mode='good';await fixture.publishState(Buffer.from(saved.bad));await load(true);
    await fixture.publishState(Buffer.from(saved.bytes));
    const beforeRetry=requests;await page.evaluate(()=>Promise.all([session.load(),session.load()]));
    assert.equal(requests-beforeRetry,6);assert.equal(await page.evaluate(()=>activeWorkers.size),2);
    assert.equal(await page.locator('#display').isVisible(),true);
+   // A restored and already used provisional VM must be replaced by the newer
+   // signed publication, without waiting for endpoints beyond the global deadline.
+   if(!mobile) {
+    const first=await fixture.publishState(Buffer.from(saved.bytes));
+    const old=Buffer.from(await (await fetch(fixture.gateway+'/ipns/'+identity.ipnsName)).arrayBuffer());
+    const newer=await fixture.publishState(Buffer.from(saved.next),Buffer.from(saved.nextDisk));
+    const next=Buffer.from(await (await fetch(fixture.gateway+'/ipns/'+identity.ipnsName)).arrayBuffer());
+    progressive={old,next,delay:3000};mode='progressive';
+    await page.goto(server.url+'/index.html');
+    await page.waitForFunction(()=>window.session?.machine && !session.display.hidden && session.machine.v86.cpu.mem8[0x70000]===41,undefined,{timeout:2500});
+    await page.locator('canvas').click({position:{x:30,y:30}});
+    await page.evaluate(()=>{window.provisional=session.machine;session.machine.v86.cpu.mem8[0x70000]=77;});
+    await page.waitForFunction(()=>!session.working,undefined,{timeout:10000});
+    assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8[0x70000]),43);
+    assert.equal(await page.evaluate(()=>session.machine!==provisional),true);
+    assert.equal(await page.evaluate(()=>session.publication.rootCid),newer.publicationCid);
+    assert.equal(await page.evaluate(()=>session.timings.attempts.length),2);
+    assert.equal(await page.evaluate(()=>activeWorkers.size),2);
+    assert(await page.evaluate(()=>session.timings.resolutionFinal-session.timings.resolutionStart<5300));
+    await page.waitForTimeout(700);assert.equal(await page.evaluate(()=>session.timings.attempts.length),2);
+    // Reuse the prepared runtime on Retry. Switch while the first preparation is
+    // blocked on a state block; the cancelled attempt must never become visible.
+    // Earlier loads now persist this state. Empty the optional cache so the
+    // delayed block actually blocks restoration while keeping the prepared runtime.
+    await page.evaluate(async()=>{
+     await session.disposeSession();
+     await new Promise((resolve,reject)=>{
+      const request=indexedDB.deleteDatabase('my98-published-cache-v1');
+      request.onsuccess=()=>resolve();request.onerror=()=>reject(request.error);
+     });
+    });
+    progressive.delay=100;fixture.delays.set(first.stateCid,1800);
+    await page.evaluate(()=>session.load());
+    fixture.delays.delete(first.stateCid);
+    assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8[0x70000]),43);
+    assert.equal(await page.evaluate(()=>activeWorkers.size),2);
+    assert.equal(await page.evaluate(()=>session.timings.attempts[0].visible),undefined);
+    // Release the newer signed reference only on a real decompression progress
+    // event. A larger authenticated state plus delayed blocks keeps its old
+    // pipeline active, rather than merely cancelling before state preparation.
+    await fixture.publishState(Buffer.from(saved.large));
+    const largeRecord=Buffer.from(await (await fetch(fixture.gateway+'/ipns/'+identity.ipnsName)).arrayBuffer());
+    const final=await fixture.publishState(Buffer.from(saved.next),Buffer.from(saved.nextDisk));
+    const finalRecord=Buffer.from(await (await fetch(fixture.gateway+'/ipns/'+identity.ipnsName)).arrayBuffer());
+    progressive={old:largeRecord,next:finalRecord,gate:new Promise(r=>releaseCandidate=r)};mode='progressive-decompress';
+    await context.addInitScript(()=>window.releaseStateOnDecompress=true);
+    await page.goto(server.url+'/index.html');
+    await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:30000});
+    assert.equal(await page.evaluate(()=>session.timings.attempts.length),2);
+    assert(await page.evaluate(()=>session.timings.attempts[0].phases.decompress.first>0));
+    assert.equal(await page.evaluate(()=>session.timings.attempts[0].visible),undefined);
+    assert.equal(await page.evaluate(()=>session.publication.rootCid),final.publicationCid);
+    assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8[0x70000]),43);
+    assert.equal(await page.evaluate(()=>activeWorkers.size),2);releaseCandidate=undefined;
+    progressive={old,next,delay:3000};mode='progressive';
+    // Leave during resolution and restoration; no callback may revive the page.
+    progressive.delay=3000;fixture.delays.set(first.stateCid,1800);
+    await page.evaluate(()=>{void session.load();});
+    await page.waitForFunction(()=>session.timings.attempts.length>0);
+    await page.evaluate(()=>session.destroy());fixture.delays.delete(first.stateCid);
+    await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>activeWorkers.size),0);
+   }
    await page.evaluate(()=>session.destroy());assert.equal(await page.evaluate(()=>activeWorkers.size),0);assert.equal(await page.evaluate(()=>!!session.machine||!!session.disk),false);
    assert.deepEqual(errors,[]);results.push({browser:engine,mobile,latestValid:true,expiredRejected:true,noStateRejected:true,cleanup:true,ramAndOverlay:true,readOnly:true,sessionReset:true,retryPreservesVM:true,profileDoesNotBlockDisplay:true,earlyExitReusesProfile:true,errors:errors.length,workers:workerCount});console.log(results.at(-1));
   }finally{await browser.close();}

@@ -19,10 +19,9 @@ and interactive commands. `my98/` remains the pinned emulator dependency.
 
 ## Published read-only session
 
-`future.html` loads the latest authenticated IPNS publication using my98's resolver,
+`index.html` loads the latest authenticated IPNS publication using my98's resolver,
 read-only disk API and state restorer. It requires HTTP(S): for a local preview run
-`python3 -m http.server 8687` and open `/future.html`. The original `index.html` is
-unchanged. Disk writes live in the session's memory and disappear on reload.
+`python3 -m http.server 8687` and open `/` (or `/index.html`). Disk writes live in the session's memory and disappear on reload.
 
 `runtime/config.json` deliberately contains a **public read-only credential** and
 the IPNS name. Export a replacement locally with my98's existing command, entering
@@ -85,6 +84,14 @@ disk/state, never updates production IPNS, and writes timings, the recorded
 profile and screenshots to `build/load-profile-real/`. It measures host link
 opening, not the audible click. `SITE_ROOT` and `EVIDENCE` also select an Ubuntu
 artifact and a separate evidence directory for this benchmark.
+Real VM tests expose `window.session` through `serveFuture(root, true)` on the
+HTTP server and verify that the CPU instruction counter advances. Avoid Playwright
+request routing even just to inject HTML: in WebKit it can prevent the emulator's
+immediately revoked Blob scheduling Worker from loading. The saved framebuffer and
+`is_running()` can then look correct while the CPU never advances. Keep request
+mocking in synthetic fixtures; use a server-side proxy when a real VM needs controlled
+network responses.
+
 The bridge's popup/no-opener/fallback behavior has separate browser tests above.
 
 ## Record all homepage actions
@@ -117,3 +124,38 @@ Coordinates and expected URLs describe the current 800×600 guest homepage;
 update the script when that layout changes. A different disk/state needs a new
 recording. Publish the verified JSON with the updated seedbox's `publish-profile`
 command when ready; no disk or state re-save is required.
+
+
+## First-visit loading
+
+The site prepares its runtime alongside configuration and IPNS resolution. Resolution starts all configured queries together, offers verified candidates immediately and closes after five seconds or when all queries finish. A newer CID replaces the provisional session even after interaction; renewing the same CID does not restart it. Retry opens a new window. The default resolver used by other my98 clients retains its existing behavior.
+
+Published states use the existing authenticated format. IPFS bytes stream through record authentication, decryption and gzip into the final state/overlay buffers. Restoration is committed only after EOF, lengths, authentication, gzip and compatibility checks pass. The emulator/BIOS and the published state retain their existing bytes.
+
+`session.timings` (when the session is exposed by the test server) records runtime, resolution and per-attempt load phases without keys or state contents. `node _my98/tests/load-performance.mjs` compares a baseline artifact (`BASELINE_ROOT`, default `build/ans143/baseline`) with the current site (`SITE_ROOT`), five alternating pairs per browser, fresh contexts and an explicit common gateway (`GATEWAY`). `CONTROLLED=1` supplies the same current signed IPNS record with controlled response delays; state/block transport remains real. `PAIRS`, `ENGINE` and `EVIDENCE` restrict a diagnostic run. Prepare the baseline from the pre-change build; never compare two copies of the optimized artifact.
+
+Persistent caching remains a separate improvement.
+
+The site opts into `openReadOnly({preloadState:true})`: verified state bytes arrive
+while the base disk opens. The exporter traverses 4 MiB ranges, with a 2 MiB stream
+queue and a 4 MiB block cache that reuses range-boundary leaves. Its ordered
+lookahead is twice the network budget so completed blocks waiting for a slow
+predecessor do not occupy all download slots. Authentication,
+compatibility checks and restoration still finish before execution.
+
+The network scheduler starts each provider at two slots and grows its allowance
+from successful data transfers, within the existing global maximum of eight.
+The first data sample establishes the latency baseline; completed healthy windows
+double the allowance. Slow transfers reduce it down to the established two-slot
+baseline (or the configured global limit if lower), and rescue temporarily favors
+healthy alternatives. A stalled foreground block can move early to another
+verified provider, cancelling its old request first. A trickling body can also
+move when its declared remaining size and measured rate indicate that restarting
+on a verified alternative is substantially faster. If the alternate fails, one
+ordinary attempt at the original remains available. Background load
+profiles keep lower priority. `disk.readStats()` includes per-provider windows and
+rescue counts; `disk.readTrace()` includes `fetch-rescue` when tracing is enabled.
+
+For the performance harness, `GATEWAY=auto` retains normal provider discovery and
+scheduling on both artifacts. Use an explicit gateway for a separate controlled
+comparison. Browser contexts are fresh; remote gateway caches are not reset.

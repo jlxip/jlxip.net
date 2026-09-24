@@ -53,10 +53,14 @@ try {
    page.on('pageerror',e=>errors.push(String(e)));
    page.on('requestfailed',r=>networkFailures.push({url:r.url(),error:r.failure()?.errorText}));
    page.on('console',m=>{if(m.type()==='error')console.log(engine,m.text());});
-   const begin=Date.now();await page.goto(server.url+'/future.html');
+   const begin=Date.now();await page.goto(server.url+'/');
    await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:180000});
    const loadMilliseconds=Date.now()-begin;
    const status=await page.locator('#status').textContent();assert.equal(await page.locator('#display').isVisible(),true,status);
+   // is_running() is set before the scheduling Worker executes its first tick.
+   // Verify real CPU progress so a failed Worker cannot masquerade as a live VM.
+   const initialInstructions=await page.evaluate(()=>session.machine.get_instruction_counter());
+   await page.waitForFunction(previous=>session.machine.get_instruction_counter()!==previous,initialInstructions,{timeout:5000});
    await page.waitForTimeout(2000);
    const details=await page.evaluate(()=>({publication:session.publication,running:session.machine.is_running(),compatibility:session.runtime.compatibility,pointer:session.pointer.enabled,keyboard:session.machine.keyboard_adapter.emu_enabled,fullscreen:!!document.fullscreenElement,pointerLock:!!document.pointerLockElement,canvas:{width:document.querySelector('canvas').width,height:document.querySelector('canvas').height},rect:(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};})()}));
    details.description=await page.evaluate(()=>session.disk.describe());

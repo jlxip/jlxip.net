@@ -5,7 +5,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 site = Path("build/site").resolve()
-for name in ("index.html", "future.html", "TFG.pdf", "build/future/app.js", "build/future/config.json", "build/my98-runtime/build/libv86.mjs", "build/my98-runtime/build/v86.wasm", "build/my98-runtime/build/disk/web/worker.js"):
+for name in ("index.html", "TFG.pdf", "build/future/app.js", "build/future/config.json", "build/my98-runtime/build/libv86.mjs", "build/my98-runtime/build/v86.wasm", "build/my98-runtime/build/disk/web/worker.js"):
     assert (site / name).stat().st_size > 0, f"Empty or missing: {name}"
 
 class References(HTMLParser):

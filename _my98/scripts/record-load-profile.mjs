@@ -56,7 +56,7 @@ Slop86Disk.prototype.setLoadPrefetch=async function(options){
    if(cid!==wrapperCid && cid!==profileCid)return route.continue();
    await route.fulfill({status:200,contentType:'application/vnd.ipld.raw',headers:{'Access-Control-Allow-Origin':'*'},body:cid===wrapperCid?wrapper:profileBytes});
   });
-  const start=Date.now();await page.goto(server.url+'/future.html');
+  const start=Date.now();await page.goto(server.url+'/index.html');
   await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:180000});
   assert(await page.locator('#display').isVisible(),await page.locator('#status').textContent());
   const base=await page.evaluate(()=>session.disk.describe());

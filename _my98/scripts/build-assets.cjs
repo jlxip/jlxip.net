@@ -43,4 +43,4 @@ esbuild.buildSync({entryPoints:['_my98/runtime/app.js'], outfile:'build/future/a
 const hashes = Object.fromEntries(names.map(name => [name,
     createHash('sha256').update(fs.readFileSync(path.join(runtime, name))).digest('hex')]));
 fs.writeFileSync('build/runtime-manifest.json', JSON.stringify(hashes, null, 2) + '\n');
-console.log(`Packaged my98 runtime (${names.length} files) and future.html application`);
+console.log(`Packaged my98 runtime (${names.length} files) and index.html application`);

@@ -57,5 +57,5 @@ submodule. Browser results and screenshots go to `build/exit-matrix`.
 
 Native build and guest acceptance use the [isolated guest harness](guest/README.md),
 with the local delivery in `~/Desktop/exit-matrix`. Host tests alone do not assert Windows cursor/fullscreen behavior.
-The final content, `future.html`, autostart and public snapshot integration are
+The final content, `index.html`, autostart and public snapshot integration are
 outside this prototype.

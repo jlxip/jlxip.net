@@ -1,11 +1,11 @@
 {
-  "my98": "21373a7e1b53c8180647676fbbf1410dbbaa9a1e",
+  "my98": "278776c72960d9319e99d6fe8011719d9d859c9b",
   "slop86": "9a9a05ba5e53557b973121eab16e004b44d81134",
   "patchSha256": "0b60b6c955c2787936d946c233e62ea3641856525a9f94590baf0aec5a35c24c",
-  "reason": "Exact emulator used by the published state. Rebuilding its C dependencies with another clang changes the WASM bytes.",
+  "reason": "Exact WASM served by my98.lol and required by the published state on 2026-09-24. Rebuilding its C dependencies with another clang changes the WASM bytes.",
   "assets": {
     "build/libv86.mjs": "2dbd24f3981c6af0046d1ae91e8397ed43132b8234f9a487bce27f3493d2cf0a",
-    "build/v86.wasm": "0e47eaf3f40e7ebb2a53c6f3c6783ba6b0f1f9072014209bfa260b8752c9f388",
+    "build/v86.wasm": "4b27119b28ba343542ee9b8a0005124b3f0e81158981e03ac6fdb7b4358b1263",
     "bios/seabios.bin": "73e3f359102e3a9982c35fce98eb7cd08f18303ac7f1ba6ebfbe6cdc1c244d98",
     "bios/bochs-vgabios.bin": "8a1caca6760b2997f399403844e2a22b651ec48715f88f709d094f7ae46dd004"
   }

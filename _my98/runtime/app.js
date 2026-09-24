@@ -26,27 +26,30 @@ export async function loadRuntime(signal) {
         ...['build/libv86.mjs','build/v86.wasm','bios/seabios.bin','bios/bochs-vgabios.bin'].map(p=>readAsset(p,signal)),
     ]);
     check(signal);
-    const hashes=await Promise.all(bytes.map(async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b)),x=>x.toString(16).padStart(2,'0')).join('')));
-    const module=await WebAssembly.compile(bytes[1]);check(signal);
+    const [hashes,module]=await Promise.all([
+        Promise.all(bytes.map(async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b)),x=>x.toString(16).padStart(2,'0')).join(''))),
+        WebAssembly.compile(bytes[1]),
+    ]);check(signal);
     return {...engine,...disk,...state,...pointer,module,bios:bytes[2],vgaBios:bytes[3],compatibility:'my98-state-adapter-1:'+hashes.join(':')};
 }
-export async function resolvePublication(ipnsName, signal) {
+export async function resolvePublication(ipnsName, signal, onCandidate) {
     const publicKey=publicKeyFromMultihash(CID.parse(ipnsName).multihash).raw;
-    const resolved=await resolveIpns({ipnsName,publicKey},{signal});
-    if(resolved.path!=='/ipfs/'+resolved.rootCid) throw new Error('The publication must point to a disk and state directory.');
-    return resolved;
+    const validate=resolved=>{
+        if(resolved.path!=='/ipfs/'+resolved.rootCid)throw new Error('The publication must point to a disk and state directory.');
+        return resolved;
+    };
+    return validate(await resolveIpns({ipnsName,publicKey},{signal,deadlineMs:5000,
+        onCandidate:resolved=>onCandidate?.(validate(resolved)),
+    }));
 }
 function errorMessage(error) {
-    if(/outdated.*read.only key/i.test(error.message)) return error.message;
-    if(/same emulator and BIOS/.test(error.message)) return 'This state needs a different Windows runtime. Please try again after the site is updated.';
-    if(error.code==='INVALID_READ_KEY' || /authenticat|read key|different base|decrypt/i.test(error.message)) return 'This publication could not be opened with the site’s read-only credential.';
-    if(error.code==='CORRUPTION') return 'The publication could not be verified. Please try again.';
-    if(error.code==='IO_ERROR') return 'The publication could not be downloaded. Check your connection and try again.';
-    return error.message || 'Windows could not start. Please try again.';
+    console.error('Could not complete the request',error);
+    return 'Something went wrong. Please try again.';
 }
 
 export class FutureSession {
     constructor() {
+        this.runtimeAbort=new AbortController();this.attemptQueue=Promise.resolve();
         this.display=document.getElementById('display');
         this.panel=document.getElementById('loading');
         this.message=document.getElementById('status');
@@ -119,61 +122,115 @@ export class FutureSession {
             return vm;
         } catch(error) {await vm.destroy().catch(()=>{});throw error;}
     }
+    prepareRuntime() {
+        if(!this.runtimePromise) {
+            this.runtimePromise=loadRuntime(this.runtimeAbort.signal).then(runtime=>this.runtime=runtime).catch(error=>{
+                this.runtimePromise=undefined;throw error;
+            });
+        }
+        return this.runtimePromise;
+    }
+    cancelAttempt() {
+        this.attempt?.controller.abort();
+        this.attempt?.disk?.cancel();this.attempt?.disk?.terminate();
+        this.pointer?.release();this.display.hidden=true;
+    }
     async disposeSession() {
         this.input.reset();
         this.bridge?.destroy();this.bridge=undefined;
         this.pointer?.destroy();this.pointer=undefined;
         this.observer?.disconnect();this.observer=undefined;
-        const machine=this.machine;this.machine=undefined;
+        const machine=this.machine,adapter=this.adapter,disk=this.disk;
+        this.machine=this.adapter=this.disk=undefined;
+        this.frame=undefined;this.display.replaceChildren();this.display.hidden=true;
+        adapter?.dispose();disk?.terminate();
         if(machine)await machine.destroy().catch(()=>{});
-        this.adapter?.dispose();this.adapter=undefined;
-        this.disk?.terminate();this.disk=undefined;
-        this.frame=undefined;
-        this.display.replaceChildren();this.display.hidden=true;
     }
     async load() {
         if(this.working || this.destroyed)return;
         this.working=true;this.abort=new AbortController();const signal=this.abort.signal;
-        this.status('Finding the latest publication…');
-        let restored;
+        this.timings={started:performance.now(),attempts:[]};
+        this.status('One moment…');
         try {
-            await this.disposeSession();check(signal);
+            this.cancelAttempt();await this.attemptQueue;await this.disposeSession();check(signal);
+            this.attempt=undefined;this.publication=undefined;
+            this.timings.runtimeStart=performance.now()-this.timings.started;
+            const runtime=this.prepareRuntime().then(value=>{
+                this.timings.runtimeReady=performance.now()-this.timings.started;return value;
+            });
+            // Config/resolution can fail before the runtime is awaited.
+            runtime.catch(()=>{});
             const response=await fetch(new URL('./config.json',import.meta.url),{signal,cache:'no-store'});
             if(!response.ok)throw new Error('The site configuration could not be loaded.');
-            const config=await response.json();
+            const config=await response.json();check(signal);
             if(typeof config.readKey==='string' && config.readKey.startsWith('my98-ro-v1.'))throw new Error('This read key is outdated. Export a new read-only key.');
-            const publication=await resolvePublication(config.ipnsName,signal);check(signal);
-            this.publication=publication;
-            this.runtime=await loadRuntime(signal);check(signal);
+            const select=publication=>{
+                check(signal);
+                if(this.publication?.rootCid===publication.rootCid) {this.publication=publication;return;}
+                this.cancelAttempt();this.publication=publication;
+                const attempt={controller:new AbortController(),metrics:{cid:publication.rootCid,selected:performance.now()-this.timings.started,phases:{}}};
+                this.attempt=attempt;this.timings.attempts.push(attempt.metrics);
+                // Serialize teardown/restoration while selection remains immediate.
+                this.attemptQueue=this.attemptQueue.then(async()=>{
+                    check(signal);check(attempt.controller.signal);
+                    await this.disposeSession();check(attempt.controller.signal);
+                    await runtime;check(signal);check(attempt.controller.signal);
+                    await this.restorePublication(publication,config,attempt);
+                }).catch(async error=>{
+                    if(attempt.controller.signal.aborted || signal.aborted)return;
+                    attempt.metrics.error=errorMessage(error);await this.disposeSession();
+                    if(this.attempt===attempt && !signal.aborted)this.status(attempt.metrics.error,true);
+                });
+            };
+            this.timings.resolutionStart=performance.now()-this.timings.started;
+            const final=await resolvePublication(config.ipnsName,signal,select);check(signal);
+            select(final);this.timings.resolutionFinal=performance.now()-this.timings.started;
+            await this.attemptQueue;check(signal);
+        } catch(error) {
+            this.cancelAttempt();await this.attemptQueue;await this.disposeSession();
+            if(!signal.aborted) {this.status(errorMessage(error),true);}
+        } finally {this.working=false;this.retry.disabled=false;}
+    }
+    async restorePublication(publication,config,attempt) {
+        const signal=attempt.controller.signal;let restored;
+        this.status('Getting things ready…');
+        try {
             const publicKey=publicKeyFromMultihash(CID.parse(config.ipnsName).multihash).raw;
             const readPublicKey=this.runtime.readOnlyPublicKey(config.readKey);
             if(publicKey.length!==readPublicKey.length || !publicKey.every((byte,i)=>byte===readPublicKey[i]))
                 throw new Error('The site’s read-only credential belongs to a different IPNS identity.');
             this.disk=await this.runtime.Slop86Disk.create({onProgress:p=>{
                 if(signal.aborted)return;
-                if(['download-state','decrypt-state','decompress'].includes(p.phase))this.status('Loading the saved state…');
+                const phase=attempt.metrics.phases[p.phase]||={first:performance.now()-this.timings.started};
+                Object.assign(phase,{last:performance.now()-this.timings.started,completed:p.completed,total:p.total});
+                if(['download-state','decrypt-state','decompress'].includes(p.phase))this.status('Getting things ready…');
             }});check(signal);
-            const description=await this.disk.openReadOnly({cid:publication.rootCid,readKey:config.readKey,prefetch:{enabled:false}});check(signal);
+            attempt.disk=this.disk;check(signal);
+            const description=await this.disk.openReadOnly({cid:publication.rootCid,readKey:config.readKey,prefetch:{enabled:false},preloadState:true,persistentCache:{state:true,loadProfile:true}});check(signal);
             if(!description.remote?.stateCid)throw new Error('The latest publication has no saved state.');
-            this.status('Loading the saved state…');
+            this.status('Getting things ready…');
             const container=document.createElement('div');container.innerHTML='<div></div><canvas></canvas>';
+            attempt.metrics.opened=performance.now()-this.timings.started;
             restored=await this.runtime.restoreMachineState({disk:this.disk,input:{published:true},compatibility:this.runtime.compatibility,signal,
-                createMachine:(adapter,machineConfig)=>{this.status('Preparing Windows…');return this.createMachine(adapter,machineConfig,container,signal);},
+                createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;this.status('Almost there…');return this.createMachine(adapter,machineConfig,container,signal);},
                 onDiskError:async error=>{
+                    if(signal.aborted)return;
                     if(this.machine){this.pointer?.release();await this.machine.stop();}
-                    if(!signal.aborted)this.status('Windows paused: '+errorMessage(error),true);
+                    if(!signal.aborted)this.status(errorMessage(error),true);
                 },
             });
             check(signal);
+            attempt.metrics.restored=performance.now()-this.timings.started;
             this.machine=restored.machine;this.adapter=restored.adapter;
             this.display.replaceChildren(...container.childNodes);
             this.display.querySelector('canvas').id='vga';
             this.pointer=this.runtime.setupDirectPointer({display:this.display,getSurface:()=>this.display.querySelector('canvas'),getMachine:()=>this.machine,focus:()=>this.display.focus({preventScroll:true})});
             this.bridge=attachMatrixBridge({machine:this.machine,surface:this.display.querySelector('canvas'),pointer:this.pointer,
                 onExit:()=>{
+                    if(signal.aborted)return;
                     this.fit();this.display.focus({preventScroll:true});
                     void this.disk.setLoadPrefetch({origin:'restored',scope:'disk'}).catch(error=>console.warn('Could not extend disk prefetch',error));
-                },onError:error=>this.status(errorMessage(error),true)});
+                },onError:error=>{if(!signal.aborted)this.status(errorMessage(error),true);}});
             this.machine.add_listener('screen-set-size',this.resize);
             this.observer=new MutationObserver(this.resize);this.observer.observe(this.display.querySelector('canvas'),{attributes:true,attributeFilter:['width','height']});
             await this.disk.setLoadPrefetch({origin:'restored',scope:'profile'});check(signal);
@@ -182,26 +239,26 @@ export class FutureSession {
             await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));check(signal);
             if(this.adapter.failed)throw this.adapter.error;
             this.display.hidden=false;this.fit();this.status('');
+            attempt.metrics.visible=performance.now()-this.timings.started;
         } catch(error) {
-            if(restored && this.machine!==restored.machine){await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
-            await this.disposeSession();
-            if(!signal.aborted){console.error('Could not load the published state',error);this.status(errorMessage(error),true);}
-        } finally {this.working=false;this.retry.disabled=false;}
+            if(restored && this.machine!==restored.machine) {await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
+            await this.disposeSession();throw error;
+        }
     }
     async retryDisk() {
         if(this.working||this.destroyed)return;
-        this.working=true;this.status('Retrying disk access…');
+        this.working=true;this.status('One moment…');
         try{await this.adapter.retry();if(this.destroyed)return;this.machine.run();this.status('');}
-        catch(error){if(!this.destroyed)this.status('Windows paused: '+errorMessage(error),true);}
+        catch(error){if(!this.destroyed)this.status(errorMessage(error),true);}
         finally{this.working=false;this.retry.disabled=false;}
     }
     async destroy() {
-        if(this.destroyed)return;this.destroyed=true;this.abort?.abort();
-        this.disk?.cancel();this.disk?.terminate();
+        if(this.destroyed)return;this.destroyed=true;this.abort?.abort();this.runtimeAbort.abort();
+        this.cancelAttempt();
         window.removeEventListener('resize',this.resize);window.removeEventListener('pagehide',this.leave);
         this.display.removeEventListener('pointerdown',this.gesture,true);this.retry.onclick=null;
         this.input.destroy();
-        await this.disposeSession();
+        await this.attemptQueue;await this.disposeSession();
     }
 }
 export function start() {
