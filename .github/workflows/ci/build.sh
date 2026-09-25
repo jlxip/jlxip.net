@@ -10,10 +10,5 @@ test "$VERSION_ID" = 24.04
 test "$(uname -m)" = x86_64
 node --version
 rustc --version
-make
+make site
 node --input-type=module --check < build/future/app.js
-mkdir -p build/site/build
-cp -- *.html *.pdf build/site/
-cp -R build/future build/my98-runtime build/site/build/
-touch build/site/.nojekyll
-python3 .github/workflows/ci/check-site.py

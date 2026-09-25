@@ -21,7 +21,7 @@ and interactive commands. `my98/` remains the pinned emulator dependency.
 
 `index.html` loads the latest authenticated IPNS publication using my98's resolver,
 read-only disk API and state restorer. It requires HTTP(S): for a local preview run
-`python3 -m http.server 8687` and open `/` (or `/index.html`). Disk writes live in the session's memory and disappear on reload.
+`make site` then `python3 -m http.server 8687 --directory build/site` and open `/` (or `/index.html`). Disk writes live in the session's memory and disappear on reload.
 
 `runtime/config.json` deliberately contains a **public read-only credential** and
 the IPNS name. Export a replacement locally with my98's existing command, entering

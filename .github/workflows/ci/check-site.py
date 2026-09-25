@@ -5,8 +5,21 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 site = Path("build/site").resolve()
-for name in ("index.html", "TFG.pdf", "build/future/app.js", "build/future/config.json", "build/my98-runtime/build/libv86.mjs", "build/my98-runtime/build/v86.wasm", "build/my98-runtime/build/disk/web/worker.js"):
+for name in ("index.html", "build/future/app.js", "build/future/config.json", "build/my98-runtime/build/libv86.mjs", "build/my98-runtime/build/v86.wasm", "build/my98-runtime/build/disk/web/worker.js"):
     assert (site / name).stat().st_size > 0, f"Empty or missing: {name}"
+
+# Everything in static/ is published verbatim at the site root, regardless of type.
+static = Path("static")
+for reserved in ("index.html", "build", ".nojekyll"):
+    assert not (static / reserved).exists(), f"Reserved site path: static/{reserved}"
+for source in static.rglob("*"):
+    assert not source.is_symlink(), f"Static symlink is not supported: {source}"
+    target = site / source.relative_to(static)
+    if source.is_dir():
+        assert target.is_dir(), f"Missing static directory: {source}"
+    else:
+        assert target.is_file(), f"Missing static file: {source}"
+        assert target.read_bytes() == source.read_bytes(), f"Changed static file: {source}"
 
 class References(HTMLParser):
     def handle_starttag(self, tag, attrs):

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := all
-.PHONY: all runtime clean
+.PHONY: all runtime site clean
 
 all: runtime
 
@@ -7,8 +7,17 @@ runtime:
 	$(MAKE) -C my98 emulator disk
 	node _my98/scripts/build-assets.cjs
 
+site: runtime
+	rm -rf build/site
+	mkdir -p build/site/build
+	cp index.html build/site/
+	cp -R static/. build/site/
+	cp -R build/future build/my98-runtime build/site/build/
+	touch build/site/.nojekyll
+	python3 .github/workflows/ci/check-site.py
+
 clean:
-	rm -rf build/future build/my98-runtime
+	rm -rf build/future build/my98-runtime build/site
 
 .PHONY: hooks site-test-clean
 hooks:
