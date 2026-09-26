@@ -229,7 +229,6 @@ export class FutureSession {
                 onExit:()=>{
                     if(signal.aborted)return;
                     this.fit();this.display.focus({preventScroll:true});
-                    void this.disk.setLoadPrefetch({origin:'restored',scope:'disk'}).catch(error=>console.warn('Could not extend disk prefetch',error));
                 },onError:error=>{if(!signal.aborted)this.status(errorMessage(error),true);}});
             this.machine.add_listener('screen-set-size',this.resize);
             this.observer=new MutationObserver(this.resize);this.observer.observe(this.display.querySelector('canvas'),{attributes:true,attributeFilter:['width','height']});

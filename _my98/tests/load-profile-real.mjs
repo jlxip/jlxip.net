@@ -89,14 +89,15 @@ Slop86Disk.prototype.setLoadPrefetch=async function(options){if(options.origin==
      let exit;
      if(withProfile) {
       await page.waitForTimeout(4500);await click(80,420);await page.waitForFunction(()=>session.bridge.exited,undefined,{timeout:30000});
-      await page.evaluate(async()=>{for(let i=0;i<100;i++){if((await session.disk.readStats()).remote.loadProfile.scope==='disk')return;await new Promise(r=>setTimeout(r,10));}throw Error('Exit did not extend scope');});
+      assert.equal((await page.evaluate(()=>session.disk.readStats())).remote.loadProfile.scope,'profile','Exit keeps profile-only prefetch');
       exit=await page.evaluate(async()=>({stats:await session.disk.readStats(),keyboard:session.machine.keyboard_adapter.emu_enabled,pointer:session.pointer.enabled,codes:measure.codes,pointerLock:!!document.pointerLockElement}));
       assert.equal(exit.keyboard,true);assert.equal(exit.pointer,true);assert.equal(exit.pointerLock,false);assert.deepEqual(exit.codes,[[0x57,0xd7]]);
       await page.evaluate(()=>{for(const b of new TextEncoder().encode('JLX98/1 EXIT\n'))session.machine.emulator_bus.send('serial0-output-byte',b);});
       assert.deepEqual(await page.evaluate(()=>measure.codes),[[0x57,0xd7]]);
       await page.waitForTimeout(1500);
       const afterExit=await page.evaluate(()=>session.disk.readStats());
-      assert(afterExit.networkBytes>clickResult.after.networkBytes,'Exit starts full download');
+      assert.equal(afterExit.remote.loadProfile.scope,'profile');
+      assert(afterExit.remote.completedUnits<afterExit.remote.totalUnits,'Exit does not prefetch the whole disk');
       await page.screenshot({path:path.join(output,`${engine}-exit.png`)});
      }
      assert.deepEqual(errors,[]);

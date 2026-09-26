@@ -112,10 +112,12 @@ try {
    assert.equal(await page.evaluate(()=>session.pointer.enabled),true);
    const loadingProfile=await page.evaluate(()=>session.disk.readStats());
    assert.equal(loadingProfile.remote.loadProfile.scope,'profile');assert.equal(loadingProfile.remote.loadProfile.status,'loading');
-   // Exit during metadata loading upgrades the same request, without delaying the restored canvas.
+   // Exit during metadata loading preserves profile-only prefetch and the same request.
    await page.evaluate(()=>{for(const b of new TextEncoder().encode('JLX98/1 EXIT\n'))session.machine.emulator_bus.send('serial0-output-byte',b);});
-   await page.evaluate(async()=>{for(let i=0;i<500;i++){const r=(await session.disk.readStats()).remote;if(r.loadProfile.scope==='disk' && r.prefetchState==='complete')return;await new Promise(r=>setTimeout(r,10));}throw Error('Early Exit did not finish prefetch');});
+   await page.evaluate(async()=>{for(let i=0;i<500;i++){const r=(await session.disk.readStats()).remote;if(r.loadProfile.scope==='profile' && r.prefetchState==='complete')return;await new Promise(r=>setTimeout(r,10));}throw Error('Early Exit did not finish prefetch');});
    assert.equal(profileRequests.filter(r=>r.method==='GET').length,1,'early Exit reuses the metadata request');
+   const afterEarlyExit=await page.evaluate(()=>session.disk.readStats());
+   assert(afterEarlyExit.remote.completedUnits<afterEarlyExit.remote.totalUnits,'early Exit does not prefetch the whole disk');
 
    await page.evaluate(async()=>{await session.disk.write(10000,new Uint8Array([99]));for(const op of ['save','downloadCurrent','exportReadOnlyKey']){try{await session.disk[op]();throw Error('Owner operation allowed');}catch(e){if(e.code!=='READ_ONLY')throw e;}}});
    const initialRequests=requests;
@@ -211,7 +213,7 @@ try {
     await page.waitForTimeout(200);assert.equal(await page.evaluate(()=>activeWorkers.size),0);
    }
    await page.evaluate(()=>session.destroy());assert.equal(await page.evaluate(()=>activeWorkers.size),0);assert.equal(await page.evaluate(()=>!!session.machine||!!session.disk),false);
-   assert.deepEqual(errors,[]);results.push({browser:engine,mobile,latestValid:true,expiredRejected:true,noStateRejected:true,cleanup:true,ramAndOverlay:true,readOnly:true,sessionReset:true,retryPreservesVM:true,profileDoesNotBlockDisplay:true,earlyExitReusesProfile:true,errors:errors.length,workers:workerCount});console.log(results.at(-1));
+   assert.deepEqual(errors,[]);results.push({browser:engine,mobile,latestValid:true,expiredRejected:true,noStateRejected:true,cleanup:true,ramAndOverlay:true,readOnly:true,sessionReset:true,retryPreservesVM:true,profileDoesNotBlockDisplay:true,earlyExitReusesProfile:true,earlyExitKeepsProfileScope:true,errors:errors.length,workers:workerCount});console.log(results.at(-1));
   }finally{await browser.close();}
  }
 }finally{await fixture.close();await server.close();}

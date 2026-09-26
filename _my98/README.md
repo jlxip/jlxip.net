@@ -43,10 +43,11 @@ same VM and retains session writes. Reload starts a separate session.
 
 The restored homepage appears before background prefetch finishes. If the
 publication includes a matching v2 load profile, only those disk ranges are
-prefetched. **Exit The Matrix** extends the same session to the complete disk,
-preserving its cache, pending profile and useful requests. Missing or invalid
-profiles leave the homepage on demand; an early click can still wait for disk
-data. Diagnostics are available through `disk.readStats()` without adding a
+prefetched. **Exit The Matrix** preserves the same session, cache and pending
+profile without starting a full-disk download. Disk ranges outside the profile
+are fetched only when the guest reads them, including after Exit. Missing or
+invalid profiles leave the session on demand; an early click or a program outside
+the profile can still wait for disk data. Diagnostics are available through `disk.readStats()` without adding a
 loading bar. See [my98's load-profile guide](../my98/scripts/load-profiles.md)
 for recording and publishing profiles. Publishing a profile changes neither the
 disk nor its state, and requires clients that support `load-profiles.json`.
@@ -109,9 +110,8 @@ those sites. It does not merge independently recorded profiles or publish IPNS.
 The script then checks each action as the **first click in a fresh session** in
 Chromium and WebKit, after the generated profile completes. It requires zero disk
 requests through that action, including the guest's completion and the desktop
-repaint on Exit. Full-disk prefetch after Exit is held during this measurement so
-its intentional traffic does not hide a demand-read miss. Normal site behavior
-is unchanged.
+repaint on Exit. Verification uses the site’s normal profile-only prefetch
+behavior, including after Exit.
 
 The verified publication input is `build/load-profile-all-links/load-profiles.json`.
 `candidate.json`, `record.json`, `record-trace.json`, `verification.json` and a

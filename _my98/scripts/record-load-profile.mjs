@@ -45,9 +45,8 @@ async function session(browser,recording,run) {
 Slop86Disk.prototype.openReadOnly=function(options){return originalOpen.call(this,{...options,cid:${JSON.stringify(recording?null:wrapperCid)}||options.cid,gateway:${JSON.stringify(gateway)},prefetch:{enabled:false,trace:true}});};
 Slop86Disk.prototype.setLoadPrefetch=async function(options){
  if(${recording} && options.origin==='restored' && options.scope==='profile')await this.startLoadAnalysis({origin:'restored'});
- // Recording excludes speculation. Verification holds full-disk prefetch on Exit
- // so its deliberate traffic cannot be mistaken for a missed demand read.
- return originalPrefetch.call(this,{...options,scope:${recording}?'none':options.scope==='disk'?'profile':options.scope});
+ // Recording excludes speculation; verification keeps normal site behavior.
+ return originalPrefetch.call(this,{...options,scope:${recording}?'none':options.scope});
 };`;
    await route.fulfill({response,body:await response.text()+patch});
   });

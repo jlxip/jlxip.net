@@ -103,6 +103,25 @@ try {
    assert.deepEqual(await page.evaluate(()=>scancodes),[[0x57,0xd7]]);
    await page.screenshot({path:path.join(output,name+'-exit.png')});
    await resizeViewport(page,initialViewport);await checkFrame(page,false);
+   await page.waitForFunction(async()=>{
+    const r=(await session.disk.readStats()).remote;
+    return r.prefetchState==='complete' && r.inFlight===0 && r.queued===0;
+   },undefined,{timeout:120000});
+   const afterExit=await page.evaluate(()=>session.disk.readStats());
+   assert.equal(afterExit.remote.loadProfile.scope,'profile','Exit preserves profile-only prefetch');
+   assert(afterExit.remote.completedUnits<afterExit.remote.totalUnits,'Exit leaves unused disk ranges unloaded');
+   await page.waitForTimeout(1500);
+   const idle=await page.evaluate(()=>session.disk.readStats());
+   assert.equal(idle.networkBytes,afterExit.networkBytes,'idle desktop does not continue downloading disk data');
+   const demand=await page.evaluate(async()=>{
+    const size=(await session.disk.describe()).size;
+    const bytes=await session.disk.read(size-512,512);
+    return {length:bytes.length,stats:await session.disk.readStats()};
+   });
+   assert.equal(demand.length,512,'uncached disk read still succeeds after Exit');
+   assert(demand.stats.networkBytes>idle.networkBytes,'uncached read fetches disk data on demand');
+   assert.equal(demand.stats.remote.loadProfile.scope,'profile');
+   details.diskLoading={afterExit,idle,demand};
    if(!mobile) {
     await page.evaluate(()=>buttons=[]);
     const b=await page.locator('canvas').boundingBox();
