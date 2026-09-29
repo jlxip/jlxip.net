@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium,webkit} from '../../my98/node_modules/playwright/index.mjs';
+import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 import {serveFuture} from './future-server.mjs';
 const root=path.resolve(process.env.SITE_ROOT||'.');
 const output=path.resolve(process.env.EVIDENCE||'build/future-real');await mkdir(output,{recursive:true});

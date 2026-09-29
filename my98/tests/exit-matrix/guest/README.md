@@ -13,8 +13,8 @@ in the local 0600 file; do not add them or the VM images to Git.
 ## Repeat the guest acceptance
 
 ```sh
-python3 _my98/tests/exit-matrix/guest/prepare.py
-node _my98/tests/exit-matrix/guest/accept.mjs
+python3 my98/tests/exit-matrix/guest/prepare.py
+node my98/tests/exit-matrix/guest/accept.mjs
 ```
 
 `prepare.py` copies the initial development disk/state only when absent, creates
@@ -52,7 +52,7 @@ See `~/Desktop/exit-matrix/evidence/state-fix/README.md`.
 Start the interactive harness (one JSON object per input line):
 
 ```sh
-node _my98/tests/exit-matrix/guest/run.mjs
+node my98/tests/exit-matrix/guest/run.mjs
 ```
 
 Use `VISIBLE=1` before the command to display its browser window.

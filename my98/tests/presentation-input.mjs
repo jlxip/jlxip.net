@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import {chromium,webkit} from '../../my98/node_modules/playwright/index.mjs';
+import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 import {serveFuture} from './future-server.mjs';
 const server=await serveFuture();
 try {
@@ -10,8 +10,8 @@ try {
    await page.goto(server.url+'/__input-test__');
    await page.setContent('<div id="display" style="position:absolute;left:0;top:0;width:400px;height:300px;touch-action:none"><canvas width="400" height="300"></canvas></div>');
    await page.evaluate(async()=>{
-    const {guardPresentationInput}=await import('/_my98/runtime/presentation-input.js');
-    const {setupDirectPointer}=await import('/my98/src/browser/direct-pointer.js');
+    const {guardPresentationInput}=await import('/my98/runtime/presentation-input.js');
+    const {setupDirectPointer}=await import('/my98/my98/src/browser/direct-pointer.js');
     window.events=[];window.exited=false;
     const display=document.querySelector('#display');
     window.guard=guardPresentationInput({display,unlocked:()=>exited});

@@ -2,8 +2,8 @@
 set -eu
 # A fresh snapshot must never contain outputs or installed dependencies.
 test ! -e build
-test ! -e my98/build
-test ! -e my98/node_modules
+test ! -e my98/my98/build
+test ! -e my98/my98/node_modules
 . /etc/os-release
 test "$ID" = ubuntu
 test "$VERSION_ID" = 24.04

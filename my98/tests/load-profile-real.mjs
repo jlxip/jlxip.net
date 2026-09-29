@@ -3,11 +3,11 @@
 import assert from 'node:assert/strict';
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium,webkit} from '../../my98/node_modules/playwright/index.mjs';
-import {CID} from '../../my98/node_modules/multiformats/dist/src/cid.js';
-import {sha256} from '../../my98/node_modules/multiformats/dist/src/hashes/sha2.js';
-import * as dagPB from '../../my98/node_modules/@ipld/dag-pb/src/index.js';
-import {UnixFS} from '../../my98/node_modules/ipfs-unixfs/dist/src/index.js';
+import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
+import {CID} from '../my98/node_modules/multiformats/dist/src/cid.js';
+import {sha256} from '../my98/node_modules/multiformats/dist/src/hashes/sha2.js';
+import * as dagPB from '../my98/node_modules/@ipld/dag-pb/src/index.js';
+import {UnixFS} from '../my98/node_modules/ipfs-unixfs/dist/src/index.js';
 import {serveFuture} from './future-server.mjs';
 
 const output=path.resolve(process.env.EVIDENCE||'build/load-profile-real');await mkdir(output,{recursive:true});

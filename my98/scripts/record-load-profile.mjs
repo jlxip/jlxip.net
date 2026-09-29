@@ -4,16 +4,16 @@ import assert from 'node:assert/strict';
 import {parseArgs} from 'node:util';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
-import {chromium,webkit} from '../../my98/node_modules/playwright/index.mjs';
-import {CID} from '../../my98/node_modules/multiformats/dist/src/cid.js';
-import {sha256} from '../../my98/node_modules/multiformats/dist/src/hashes/sha2.js';
-import * as dagPB from '../../my98/node_modules/@ipld/dag-pb/src/index.js';
-import {UnixFS} from '../../my98/node_modules/ipfs-unixfs/dist/src/index.js';
+import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
+import {CID} from '../my98/node_modules/multiformats/dist/src/cid.js';
+import {sha256} from '../my98/node_modules/multiformats/dist/src/hashes/sha2.js';
+import * as dagPB from '../my98/node_modules/@ipld/dag-pb/src/index.js';
+import {UnixFS} from '../my98/node_modules/ipfs-unixfs/dist/src/index.js';
 import {serveFuture} from '../tests/future-server.mjs';
 
 const {values}=parseArgs({options:{output:{type:'string'},site:{type:'string'},gateway:{type:'string'},'verify-only':{type:'boolean'},help:{type:'boolean'}}});
 if(values.help) {
- console.log('Usage: node _my98/scripts/record-load-profile.mjs [--output DIRECTORY] [--site DIRECTORY] [--gateway URL] [--verify-only]\nRecords all six links, then Exit The Matrix, from the published 800x600 homepage.\nChecks every action as the first click in fresh Chromium and WebKit sessions.\nWrites load-profiles.json only after all checks pass; never publishes or opens external tabs.\n--verify-only reuses candidate.json and record.json from an interrupted run.');
+ console.log('Usage: node my98/scripts/record-load-profile.mjs [--output DIRECTORY] [--site DIRECTORY] [--gateway URL] [--verify-only]\nRecords all six links, then Exit The Matrix, from the published 800x600 homepage.\nChecks every action as the first click in fresh Chromium and WebKit sessions.\nWrites load-profiles.json only after all checks pass; never publishes or opens external tabs.\n--verify-only reuses candidate.json and record.json from an interrupted run.');
  process.exit(0);
 }
 const output=path.resolve(values.output||'build/load-profile-all-links');

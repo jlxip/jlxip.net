@@ -18,7 +18,7 @@ recursively to the site root, including dotfiles, with no extension filter:
 `static/capileira.png` becomes `/capileira.png`. Crypto 101 and the thesis PDF live
 there too. The validator checks every static file byte-for-byte.
 
-`index.html` remains the application entry point in the repository root. The names
+`my98/index.html` is the application entry point. The names
 `index.html`, `build/` and `.nojekyll` are reserved at the root of `static/` for the
 application and generated assets. Symlinks are not supported by Pages.
 

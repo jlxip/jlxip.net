@@ -1,11 +1,14 @@
 import http from 'node:http';
 import path from 'node:path';
+import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 export async function serveFuture(root=process.cwd(),instrument=false) {
  const server=http.createServer(async(req,res)=>{
   try {
    const url=new URL(req.url,'http://localhost');
-   const pathname=url.pathname==='/'?'/index.html':url.pathname,file=path.resolve(root,'.'+pathname);
+   const pathname=url.pathname==='/'?'/index.html':url.pathname;
+   const sourceEntry=path.resolve(root,'my98/index.html');
+   const file=pathname==='/index.html'&&existsSync(sourceEntry)?sourceEntry:path.resolve(root,'.'+pathname);
    if(!file.startsWith(path.resolve(root)+path.sep))throw Error('outside root');
    let bytes=await readFile(file);
    if(instrument&&pathname==='/index.html')bytes=Buffer.from(bytes.toString().replace('module => module.start()', 'module => { window.session = module.start(); }'));

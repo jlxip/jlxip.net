@@ -1,8 +1,10 @@
 {
-  "my98": "278776c72960d9319e99d6fe8011719d9d859c9b",
-  "slop86": "9a9a05ba5e53557b973121eab16e004b44d81134",
+  "my98": "09e3f09b7e076cada2e7d88562a1dce25b48218e",
+  "slop86": "0c30e1128edb656ac3936b0c0ecba5981646f961",
+  "stateRuntimeMy98": "278776c72960d9319e99d6fe8011719d9d859c9b",
+  "stateRuntimeSlop86": "9a9a05ba5e53557b973121eab16e004b44d81134",
   "patchSha256": "0b60b6c955c2787936d946c233e62ea3641856525a9f94590baf0aec5a35c24c",
-  "reason": "Exact WASM served by my98.lol and required by the published state on 2026-09-24. Rebuilding its C dependencies with another clang changes the WASM bytes.",
+  "reason": "Exact ESM and WASM required by the published state on 2026-09-24. The source submodules can advance while these authenticated emulator bytes remain locked.",
   "assets": {
     "build/libv86.mjs": "2dbd24f3981c6af0046d1ae91e8397ed43132b8234f9a487bce27f3493d2cf0a",
     "build/v86.wasm": "4b27119b28ba343542ee9b8a0005124b3f0e81158981e03ac6fdb7b4358b1263",

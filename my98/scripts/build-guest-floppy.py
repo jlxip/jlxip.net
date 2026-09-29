@@ -8,10 +8,10 @@ import sys
 root = Path(__file__).resolve().parents[2]
 out = Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'build/guest-dos/jlxip-index.img'
 files = [
-    ('index.html', b'INDEX~1 HTM', root / '_my98/guest/index.html'),
-    ('VGADOS.TTF', b'VGADOS  TTF', root / '_my98/guest/fonts/VGADOS.TTF'),
-    ('LICENSE.TXT', b'LICENSE TXT', root / '_my98/guest/fonts/LICENSE.TXT'),
-    ('README.TXT', b'README  TXT', root / '_my98/guest/fonts/README.TXT'),
+    ('index.html', b'INDEX~1 HTM', root / 'my98/guest/index.html'),
+    ('VGADOS.TTF', b'VGADOS  TTF', root / 'my98/guest/fonts/VGADOS.TTF'),
+    ('LICENSE.TXT', b'LICENSE TXT', root / 'my98/guest/fonts/LICENSE.TXT'),
+    ('README.TXT', b'README  TXT', root / 'my98/guest/fonts/README.TXT'),
 ]
 image = bytearray(1474560)
 image[:11] = b'\xeb\x3c\x90MSDOS5.0'

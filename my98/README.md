@@ -3,19 +3,22 @@
 Guest content, scripts and isolated tests for the my98 integration live here. Run commands
 from the repository root; generated files stay in the ignored `build/` directory.
 
+- `index.html`: public application entry point.
+- `../static/`: unchanged files copied to the public site root.
 - `guest/index.html`: editable page served inside Windows 98; CSS and JavaScript are inline.
 - `scripts/`: asset build, clean CI entry point and COM1 bridge controller.
 - `tests/exit-matrix/`: bridge checks and the interactive Windows 98 harness.
+- `my98/`: pinned emulator submodule.
 
 ```sh
 make
-node _my98/tests/exit-matrix/bridge.test.mjs
-MY98_SOURCE=../my98 node _my98/tests/exit-matrix/browser.test.mjs
-VISIBLE=1 node _my98/tests/exit-matrix/guest/run.mjs
+node my98/tests/exit-matrix/bridge.test.mjs
+MY98_SOURCE=../my98 node my98/tests/exit-matrix/browser.test.mjs
+VISIBLE=1 node my98/tests/exit-matrix/guest/run.mjs
 ```
 
 See [the guest guide](tests/exit-matrix/guest/README.md) for the prepared VM
-and interactive commands. `my98/` remains the pinned emulator dependency.
+and interactive commands.
 
 ## Published read-only session
 
@@ -28,8 +31,8 @@ the IPNS name. Export a replacement locally with my98's existing command, enteri
 the password only at its prompt:
 
 ```sh
-cd my98
-python3 scripts/read-only-key.py --gateway https://piensa.jlxip.net > ../build/read-only-credential.json
+cd my98/my98
+python3 scripts/read-only-key.py --gateway https://piensa.jlxip.net > ../../build/read-only-credential.json
 ```
 
 Copy the exported `ipnsName` and `readKey` into the public configuration. The
@@ -48,32 +51,32 @@ profile without starting a full-disk download. Disk ranges outside the profile
 are fetched only when the guest reads them, including after Exit. Missing or
 invalid profiles leave the session on demand; an early click or a program outside
 the profile can still wait for disk data. Diagnostics are available through `disk.readStats()` without adding a
-loading bar. See [my98's load-profile guide](../my98/scripts/load-profiles.md)
+loading bar. See [my98's load-profile guide](my98/scripts/load-profiles.md)
 for recording and publishing profiles. Publishing a profile changes neither the
 disk nor its state, and requires clients that support `load-profiles.json`.
 
-`runtime/emulator/v86.wasm` is the exact binary built from the pinned my98 submodule
-and used to save the published state. `lock.json` records both source revisions,
-the my98 patch hash and all four compatibility asset hashes. Clang versions on macOS
-and Ubuntu produce different WASM bytes even with identical source and Rust, so the
-packager deliberately uses this locked binary on both platforms. It checks the
-rebuilt ESM and original BIOS hashes too; it never changes or bypasses the state's
-compatibility check. Updating the emulator requires explicitly replacing the lock
-and binary with the build used by a newly published state. All upstream licenses
-are copied with the runtime. The disk Worker and its WASM are built from source.
+`runtime/emulator/libv86.mjs` and `runtime/emulator/v86.wasm` are the exact emulator
+bytes required by the published state. `lock.json` records the current source
+revisions, the source revisions of those state-compatible bytes, the my98 patch
+hash and all four compatibility asset hashes. Clang versions on macOS and Ubuntu
+can produce different WASM bytes, so the packager uses these locked files on both
+platforms. It checks their hashes and the original BIOS hashes without bypassing
+the state's compatibility check. Updating the emulator requires a newly published
+state and matching locked files. All upstream licenses are copied with the runtime.
+The disk Worker and its WASM are built from the current submodule source.
 
 On a fresh checkout, install my98’s pinned build tool once:
 
 ```sh
-cargo install wasm-bindgen-cli --version 0.2.100 --locked --root my98/build/crypto-tools
+cargo install wasm-bindgen-cli --version 0.2.100 --locked --root my98/my98/build/crypto-tools
 ```
 
 ```sh
 make future-test                 # signed fixtures, real VM, both browsers/mobile
-node _my98/tests/future-real.mjs  # current real publication; requires network
-node _my98/tests/load-profile-real.mjs # record and compare a real first-link profile
+node my98/tests/future-real.mjs  # current real publication; requires network
+node my98/tests/load-profile-real.mjs # record and compare a real first-link profile
 make site-test-clean             # exact staged tree, clean Ubuntu Pages artifact
-SITE_ROOT=build/ci-runs/run-XXX/site EVIDENCE=build/future-ubuntu node _my98/tests/future-real.mjs
+SITE_ROOT=build/ci-runs/run-XXX/site EVIDENCE=build/future-ubuntu node my98/tests/future-real.mjs
 ```
 
 The real-publication test opens disposable sessions only: it does not publish,
@@ -99,7 +102,7 @@ The bridge's popup/no-opener/fallback behavior has separate browser tests above.
 
 ```sh
 make
-node _my98/scripts/record-load-profile.mjs
+node my98/scripts/record-load-profile.mjs
 ```
 
 This records a **single journey** from the published state: my98, ECDH, YouTube,
@@ -132,7 +135,7 @@ The site prepares its runtime alongside configuration and IPNS resolution. Resol
 
 Published states use the existing authenticated format. IPFS bytes stream through record authentication, decryption and gzip into the final state/overlay buffers. Restoration is committed only after EOF, lengths, authentication, gzip and compatibility checks pass. The emulator/BIOS and the published state retain their existing bytes.
 
-`session.timings` (when the session is exposed by the test server) records runtime, resolution and per-attempt load phases without keys or state contents. `node _my98/tests/load-performance.mjs` compares a baseline artifact (`BASELINE_ROOT`, default `build/ans143/baseline`) with the current site (`SITE_ROOT`), five alternating pairs per browser, fresh contexts and an explicit common gateway (`GATEWAY`). `CONTROLLED=1` supplies the same current signed IPNS record with controlled response delays; state/block transport remains real. `PAIRS`, `ENGINE` and `EVIDENCE` restrict a diagnostic run. Prepare the baseline from the pre-change build; never compare two copies of the optimized artifact.
+`session.timings` (when the session is exposed by the test server) records runtime, resolution and per-attempt load phases without keys or state contents. `node my98/tests/load-performance.mjs` compares a baseline artifact (`BASELINE_ROOT`, default `build/ans143/baseline`) with the current site (`SITE_ROOT`), five alternating pairs per browser, fresh contexts and an explicit common gateway (`GATEWAY`). `CONTROLLED=1` supplies the same current signed IPNS record with controlled response delays; state/block transport remains real. `PAIRS`, `ENGINE` and `EVIDENCE` restrict a diagnostic run. Prepare the baseline from the pre-change build; never compare two copies of the optimized artifact.
 
 Persistent caching remains a separate improvement.
 

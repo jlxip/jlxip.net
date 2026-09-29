@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import {readFile,mkdir,writeFile} from 'node:fs/promises';
 import {existsSync} from 'node:fs';
-import {chromium,webkit} from '../../my98/node_modules/playwright/index.mjs';
+import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 const baseline=path.resolve(process.env.BASELINE_ROOT||'build/ans143/baseline');
 const candidate=path.resolve(process.env.SITE_ROOT||'.');
 const output=path.resolve(process.env.EVIDENCE||'build/ans143/performance');

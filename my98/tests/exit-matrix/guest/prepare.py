@@ -5,7 +5,7 @@ root=Path(os.environ.get('GUEST_ROOT',str(Path.home()/'Desktop/exit-matrix'))).r
 my=Path(os.environ.get('MY98_SOURCE',str(source.parents[4]/'my98'))).resolve()
 for name in ['index.html','fat.js']:shutil.copy2(source/name,root/name)
 x=Path(os.environ.get('XOS_SOURCE',str(my.parent/'xos-jlxip98-small')));site=Path(os.environ.get('JLXIP_SITE',str(my.parent/'jlxip.net')));base=Path(os.environ.get('DEV_BASE',str(Path.home()/'Desktop/jlxip98-small')))
-for name,target in [('app',base/'app'),('direct-pointer.js',my/'src/browser/direct-pointer.js'),('bridge.js',site/'_my98/scripts/exit-matrix/bridge.js')]:
+for name,target in [('app',base/'app'),('direct-pointer.js',my/'src/browser/direct-pointer.js'),('bridge.js',site/'my98/scripts/exit-matrix/bridge.js')]:
  if not (root/name).exists():(root/name).symlink_to(target,target_is_directory=target.is_dir())
 for name in ['jlxip98-small.my98','jlxip98-small.my98state']:
  if not (root/name).exists():subprocess.run(['cp','-c',str(base/name),str(root/name)],check=True)
@@ -16,7 +16,7 @@ changed=[name for name in (x/'tests/windows98/sources.txt').read_text().splitlin
 if (payload/'update').exists():shutil.rmtree(payload/'update')
 for name in changed:
  p=payload/'update'/name;p.parent.mkdir(parents=True,exist_ok=True);shutil.copy2(x/name,p)
-shutil.copy2(site/'_my98/tests/exit-matrix/index.html',payload/'MATRIX.HTM')
+shutil.copy2(site/'my98/tests/exit-matrix/index.html',payload/'MATRIX.HTM')
 archive=Path(os.environ.get('VBADOS_ZIP',str(my/'build/direct-pointer/vbados.zip')))
 assert hashlib.sha256(archive.read_bytes()).hexdigest()=='824d74731d719ff4c8ca7914f6f93e554812fca3a9ef8c44317c1da728184d27'
 with zipfile.ZipFile(archive) as z:

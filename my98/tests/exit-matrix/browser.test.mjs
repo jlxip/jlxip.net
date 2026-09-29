@@ -3,7 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import assert from 'node:assert/strict';
 import {createRequire} from 'node:module';
-const require=createRequire(path.resolve('my98/package.json'));
+const require=createRequire(path.resolve('my98/my98/package.json'));
 const {chromium,webkit}=require('playwright');
 const root=process.cwd(),out=path.join(root,'build/exit-matrix');await fs.mkdir(out,{recursive:true});
 const server=http.createServer(async(req,res)=>{
@@ -16,7 +16,7 @@ try{for(const [name,type] of Object.entries({chromium,webkit}))for(const mobile 
  const browser=await type.launch({headless:true});try{
  const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1000,height:800},hasTouch:mobile,isMobile:mobile});
  const page=await context.newPage(),errors=[];page.on('pageerror',e=>errors.push(String(e)));
- await page.goto(origin+'/_my98/tests/exit-matrix/host.html');await page.waitForFunction(()=>window.test);
+ await page.goto(origin+'/my98/tests/exit-matrix/host.html');await page.waitForFunction(()=>window.test);
  const surface=page.locator('canvas');assert.equal(await surface.evaluate(e=>getComputedStyle(e).cursor),'default');
  if(mobile)await page.touchscreen.tap(195,146);else await page.mouse.click(400,300);
  let events=await page.evaluate(()=>test.events);assert(events.some(e=>e[0]==='mouse-absolute'));

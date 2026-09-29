@@ -47,8 +47,8 @@ of IE and the desktop; a serial EXIT alone is insufficient proof.
 From the jlxip.net root:
 
 ```sh
-node _my98/tests/exit-matrix/bridge.test.mjs
-MY98_SOURCE=../my98 node _my98/tests/exit-matrix/browser.test.mjs
+node my98/tests/exit-matrix/bridge.test.mjs
+MY98_SOURCE=../my98 node my98/tests/exit-matrix/browser.test.mjs
 ```
 
 The browser fixture imports the canonical existing direct-pointer module from

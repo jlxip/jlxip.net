@@ -1,6 +1,6 @@
 import {CID} from 'multiformats/cid';
 import {publicKeyFromMultihash} from '@libp2p/crypto/keys';
-import {resolveIpns} from '../../my98/src/disk/web/resolution.js';
+import {resolveIpns} from '../my98/src/disk/web/resolution.js';
 import {attachMatrixBridge} from '../scripts/exit-matrix/bridge.js';
 import {guardPresentationInput} from './presentation-input.js';
 
@@ -58,6 +58,13 @@ export class FutureSession {
         this.resize=()=>this.fit();window.addEventListener('resize',this.resize);
         this.gesture=()=>{this.machine?.speaker_adapter?.resume();};
         this.display.addEventListener('pointerdown',this.gesture,true);
+        // The guest uses Pointer Events. Keep legacy touch handlers from seeing
+        // these gestures without cancelling the browser's native pinch zoom.
+        this.allowTouchZoom=event=>event.stopImmediatePropagation();
+        for(const type of ['touchstart','touchmove','touchend','touchcancel'])
+            this.display.addEventListener(type,this.allowTouchZoom,{capture:true,passive:true});
+        this.allowWheelZoom=event=>{if(event.ctrlKey)event.stopImmediatePropagation();};
+        this.display.addEventListener('wheel',this.allowWheelZoom,{capture:true,passive:true});
         this.input=guardPresentationInput({display:this.display,unlocked:()=>!!this.bridge?.exited});
         this.leave=()=>{void this.destroy();};window.addEventListener('pagehide',this.leave);
     }
@@ -256,6 +263,9 @@ export class FutureSession {
         this.cancelAttempt();
         window.removeEventListener('resize',this.resize);window.removeEventListener('pagehide',this.leave);
         this.display.removeEventListener('pointerdown',this.gesture,true);this.retry.onclick=null;
+        for(const type of ['touchstart','touchmove','touchend','touchcancel'])
+            this.display.removeEventListener(type,this.allowTouchZoom,true);
+        this.display.removeEventListener('wheel',this.allowWheelZoom,true);
         this.input.destroy();
         await this.attemptQueue;await this.disposeSession();
     }
