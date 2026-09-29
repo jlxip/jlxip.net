@@ -56,6 +56,10 @@ export class FutureSession {
         this.retry=document.getElementById('retry');
         this.retry.onclick=()=>this.adapter?.failed ? this.retryDisk() : this.load();
         this.resize=()=>this.fit();window.addEventListener('resize',this.resize);
+        this.visualResize=()=>{
+            if(this.fittedZoom && window.visualViewport?.scale<=1.01)this.fit();
+        };
+        window.visualViewport?.addEventListener('resize',this.visualResize);
         this.gesture=()=>{this.machine?.speaker_adapter?.resume();};
         this.display.addEventListener('pointerdown',this.gesture,true);
         // The guest uses Pointer Events. Keep legacy touch handlers from seeing
@@ -75,10 +79,14 @@ export class FutureSession {
     }
     fit() {
         const canvas=this.display.querySelector('canvas');if(!canvas||!this.machine)return;
-        const W=innerWidth,H=innerHeight;if(W<=0||H<=0||!canvas.width||!canvas.height)return;
+        const visual=window.visualViewport;
+        const zoomed=!!this.bridge?.exited && visual?.scale>1.01;
+        const W=zoomed?visual.width:innerWidth,H=zoomed?visual.height:innerHeight;
+        if(W<=0||H<=0||!canvas.width||!canvas.height)return;
         const aspect=this.machine.screen_get_aspect_ratio() || canvas.width/canvas.height;
         let width=Math.min(W,H*aspect),height=width/aspect;
-        let left=(W-width)/2,top=(H-height)/2;
+        let left=(zoomed?visual.offsetLeft:0)+(W-width)/2;
+        let top=(zoomed?visual.offsetTop:0)+(H-height)/2;
         let edgeCrop=0;
         const p=PRESENTATION;
         if(!this.bridge?.exited && canvas.width===p.width && canvas.height===p.height) {
@@ -94,6 +102,7 @@ export class FutureSession {
             this.input.reset();this.pointer?.release();
         }
         this.frame=frame;
+        this.fittedZoom=zoomed;
         this.display.style.width=width+'px';this.display.style.height=height+'px';
         this.display.style.left=left+'px';this.display.style.top=top+'px';
         // Clip the input surface too; the full canvas rect still maps guest coordinates.
@@ -150,6 +159,7 @@ export class FutureSession {
         const machine=this.machine,adapter=this.adapter,disk=this.disk;
         this.machine=this.adapter=this.disk=undefined;
         this.frame=undefined;this.display.replaceChildren();this.display.hidden=true;
+        this.fittedZoom=false;
         adapter?.dispose();disk?.terminate();
         if(machine)await machine.destroy().catch(()=>{});
     }
@@ -262,6 +272,7 @@ export class FutureSession {
         if(this.destroyed)return;this.destroyed=true;this.abort?.abort();this.runtimeAbort.abort();
         this.cancelAttempt();
         window.removeEventListener('resize',this.resize);window.removeEventListener('pagehide',this.leave);
+        window.visualViewport?.removeEventListener('resize',this.visualResize);
         this.display.removeEventListener('pointerdown',this.gesture,true);this.retry.onclick=null;
         for(const type of ['touchstart','touchmove','touchend','touchcancel'])
             this.display.removeEventListener(type,this.allowTouchZoom,true);
