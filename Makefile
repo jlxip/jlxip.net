@@ -1,5 +1,6 @@
 .DEFAULT_GOAL := all
-.PHONY: all runtime site clean
+.PHONY: all runtime site run clean
+PORT ?= 8687
 
 all: runtime
 
@@ -15,6 +16,9 @@ site: runtime
 	cp -R build/future build/my98-runtime build/site/build/
 	touch build/site/.nojekyll
 	python3 .github/workflows/ci/check-site.py
+
+run: site
+	python3 -m http.server $(PORT) --bind 127.0.0.1 --directory build/site
 
 clean:
 	rm -rf build/future build/my98-runtime build/site

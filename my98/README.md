@@ -24,7 +24,7 @@ and interactive commands.
 
 `index.html` loads the latest authenticated IPNS publication using my98's resolver,
 read-only disk API and state restorer. It requires HTTP(S): for a local preview run
-`make site` then `python3 -m http.server 8687 --directory build/site` and open `/` (or `/index.html`). Disk writes live in the session's memory and disappear on reload.
+`make run` and open `http://127.0.0.1:8687/` (`PORT=8688 make run` selects another port). Disk writes live in the session's memory and disappear on reload.
 
 `runtime/config.json` deliberately contains a **public read-only credential** and
 the IPNS name. Export a replacement locally with my98's existing command, entering

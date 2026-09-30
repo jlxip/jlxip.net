@@ -121,6 +121,7 @@ export class FutureSession {
             memory_size:config.memory_size,vga_memory_size:config.vga_memory_size,
             bios:{buffer:r.bios},vga_bios:{buffer:r.vgaBios},hda:{disk_adapter:adapter},
             boot_order:config.boot_order,acpi:config.acpi,
+            mac_address_translation:true,
             net_device:{type:'ne2k',relay_url:'wss://relay.widgetry.org/',mtu:1500},
             screen:{container,use_graphical_text:true},disable_speaker:false,
             disable_keyboard:false,autostart:false,

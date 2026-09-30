@@ -22,5 +22,5 @@ there too. The validator checks every static file byte-for-byte.
 `index.html`, `build/` and `.nojekyll` are reserved at the root of `static/` for the
 application and generated assets. Symlinks are not supported by Pages.
 
-Run `make site` to assemble and validate `build/site/`, then preview with
-`python3 -m http.server 8687 --directory build/site`. CI uses the same target.
+Run `make run` to assemble and validate `build/site/`, then preview at
+`http://127.0.0.1:8687/`. CI uses the `site` target without starting the server.
