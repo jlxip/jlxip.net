@@ -18,6 +18,11 @@ recursively to the site root, including dotfiles, with no extension filter:
 `static/capileira.png` becomes `/capileira.png`. Crypto 101 and the thesis PDF live
 there too. The validator checks every static file byte-for-byte.
 
+`static/theses/index.html` redirects `/theses/` (and `/theses` after the directory
+redirect) to `/TFG.pdf`. The build also copies the canonical `static/TFG.pdf` to
+`/theses/TFG.pdf` for legacy links; the validator checks that copy byte-for-byte.
+Only the canonical PDF is stored in Git.
+
 `my98/index.html` is the application entry point. The names
 `index.html`, `build/` and `.nojekyll` are reserved at the root of `static/` for the
 application and generated assets. Symlinks are not supported by Pages.

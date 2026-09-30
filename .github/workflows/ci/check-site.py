@@ -21,6 +21,9 @@ for source in static.rglob("*"):
         assert target.is_file(), f"Missing static file: {source}"
         assert target.read_bytes() == source.read_bytes(), f"Changed static file: {source}"
 
+# The legacy PDF URL is generated from the single canonical source.
+assert (site / "theses/TFG.pdf").read_bytes() == (static / "TFG.pdf").read_bytes(), "Changed legacy thesis PDF"
+
 class References(HTMLParser):
     def handle_starttag(self, tag, attrs):
         for name, value in attrs:

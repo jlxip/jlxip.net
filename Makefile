@@ -13,6 +13,7 @@ site: runtime
 	mkdir -p build/site/build
 	cp my98/index.html build/site/
 	cp -R static/. build/site/
+	cp static/TFG.pdf build/site/theses/TFG.pdf
 	cp -R build/future build/my98-runtime build/site/build/
 	touch build/site/.nojekyll
 	python3 .github/workflows/ci/check-site.py
