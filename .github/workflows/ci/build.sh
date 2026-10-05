@@ -10,5 +10,6 @@ test "$VERSION_ID" = 24.04
 test "$(uname -m)" = x86_64
 node --version
 rustc --version
+make input-test
 make site
 node --input-type=module --check < build/future/app.js

@@ -69,7 +69,9 @@ export class FutureSession {
             this.display.addEventListener(type,this.allowTouchZoom,{capture:true,passive:true});
         this.allowWheelZoom=event=>{if(event.ctrlKey)event.stopImmediatePropagation();};
         this.display.addEventListener('wheel',this.allowWheelZoom,{capture:true,passive:true});
-        this.input=guardPresentationInput({display:this.display,unlocked:()=>!!this.bridge?.exited});
+        this.input=guardPresentationInput({display:this.display,unlocked:()=>!!this.bridge?.exited,
+            getSession:()=>this.pointer?.enabled && this.machine?.is_running() &&
+                !this.working && !this.destroyed && !this.display.hidden ? this.machine : null});
         this.leave=()=>{void this.destroy();};window.addEventListener('pagehide',this.leave);
     }
     status(text, error=false) {
@@ -148,6 +150,7 @@ export class FutureSession {
         return this.runtimePromise;
     }
     cancelAttempt() {
+        this.input.reset();
         this.attempt?.controller.abort();
         this.attempt?.disk?.cancel();this.attempt?.disk?.terminate();
         this.pointer?.release();this.display.hidden=true;
@@ -233,6 +236,7 @@ export class FutureSession {
                 createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;this.status('Almost there…');return this.createMachine(adapter,machineConfig,container,signal);},
                 onDiskError:async error=>{
                     if(signal.aborted)return;
+                    this.input.reset();
                     if(this.machine){this.pointer?.release();await this.machine.stop();}
                     if(!signal.aborted)this.status(errorMessage(error),true);
                 },

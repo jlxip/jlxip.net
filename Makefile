@@ -31,8 +31,11 @@ hooks:
 site-test-clean:
 	python3 my98/scripts/clean-site-test.py
 
-.PHONY: future-test
-future-test: all
+.PHONY: input-test future-test
+input-test:
+	node --test my98/tests/presentation-input-unit.mjs
+
+future-test: all input-test
 	node my98/tests/presentation-input.mjs
 	node my98/tests/zoom-exit.mjs
 	cd my98/my98 && CARGO_TARGET_DIR="$(CURDIR)/my98/my98/build/disk-target" cargo build --manifest-path src/disk/Cargo.toml --locked --release --example compat

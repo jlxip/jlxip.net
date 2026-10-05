@@ -72,12 +72,26 @@ cargo install wasm-bindgen-cli --version 0.2.100 --locked --root my98/my98/build
 ```
 
 ```sh
+make input-test                  # site input + direct pointer; Node, no browser/UI
 make future-test                 # signed fixtures, real VM, both browsers/mobile
 node my98/tests/future-real.mjs  # current real publication; requires network
 node my98/tests/load-profile-real.mjs # record and compare a real first-link profile
 make site-test-clean             # exact staged tree, clean Ubuntu Pages artifact
 SITE_ROOT=build/ci-runs/run-XXX/site EVIDENCE=build/future-ubuntu node my98/tests/future-real.mjs
 ```
+
+After Exit The Matrix, a stationary one-finger hold for 500 ms produces one
+right click immediately; releasing it produces no further click. Short taps
+remain left clicks. Movement beyond 8 CSS pixels or a second finger cancels the
+gesture; native pinch zoom remains available. Two short taps within 500 ms and
+8 CSS pixels use the first tap's position, making double taps tolerant of finger
+jitter on a scaled desktop. Both clicks are sent immediately on release; Windows
+retains its own double-click timing rules. A long/cancelled gesture, session or
+frame change clears the remembered tap. Mouse input and touch before Exit are unchanged.
+The Node input tests use controlled time and the real direct-pointer module with
+an in-memory event/capture harness. Physical Safari/iPhone and Chrome/Android
+checks are still needed to verify native pinch zoom, callout suppression and the
+guest context menu. These tests do not substitute for those manual checks.
 
 The real-publication test opens disposable sessions only: it does not publish,
 export or modify the remote disk/state. Screenshots and JSON evidence are written
