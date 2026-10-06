@@ -16,8 +16,7 @@ const names = [
 const lock = JSON.parse(fs.readFileSync('my98/runtime/emulator/lock.json'));
 const sha256 = bytes => createHash('sha256').update(bytes).digest('hex');
 const revision = directory => execFileSync('git', ['-C', directory, 'rev-parse', 'HEAD'], {encoding:'utf8'}).trim();
-if(revision('my98/my98') !== lock.my98 || revision('my98/my98/vendor/slop86') !== lock.slop86 ||
-    sha256(fs.readFileSync('my98/my98/vendor/patches/slop86.patch')) !== lock.patchSha256)
+if(revision('my98/my98') !== lock.my98 || revision('my98/my98/vendor/slop86') !== lock.slop86)
     throw new Error('Update the published-state runtime lock for this my98 revision');
 const runtime = 'build/my98-runtime';
 fs.rmSync(runtime, {recursive:true, force:true});

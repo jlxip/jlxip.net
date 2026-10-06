@@ -57,13 +57,20 @@ disk nor its state, and requires clients that support `load-profiles.json`.
 
 `runtime/emulator/libv86.mjs` and `runtime/emulator/v86.wasm` are the exact emulator
 bytes required by the published state. `lock.json` records the current source
-revisions, the source revisions of those state-compatible bytes, the my98 patch
-hash and all four compatibility asset hashes. Clang versions on macOS and Ubuntu
+revisions, the source revisions of those state-compatible bytes and all four
+compatibility asset hashes. Clang versions on macOS and Ubuntu
 can produce different WASM bytes, so the packager uses these locked files on both
 platforms. It checks their hashes and the original BIOS hashes without bypassing
 the state's compatibility check. Updating the emulator requires a newly published
 state and matching locked files. All upstream licenses are copied with the runtime.
-The disk Worker and its WASM are built from the current submodule source.
+The disk Worker and its WASM are built from the current submodule source. After
+committing source changes in my98, point the site gitlink and `lock.my98` at that
+same commit; keep the state runtime revisions and compatibility hashes unchanged.
+
+CAR selection samples up to a verified 1 MiB prefix when several providers are
+available, with a bounded sampling period and reuse of partial data. The winner
+continues through the existing four ranges; a single provider does not wait for
+sampling. See the shared [state transport guide](my98/scripts/state-transport.md).
 
 On a fresh checkout, install my98’s pinned build tool once:
 
