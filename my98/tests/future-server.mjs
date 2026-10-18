@@ -2,10 +2,15 @@ import http from 'node:http';
 import path from 'node:path';
 import {existsSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
-export async function serveFuture(root=process.cwd(),instrument=false) {
+export async function serveFuture(root=process.cwd(),instrument=false,options={}) {
  const server=http.createServer(async(req,res)=>{
   try {
    const url=new URL(req.url,'http://localhost');
+   if(await options.handleRequest?.(req,res,url))return;
+   if(options.config && url.pathname==='/build/future/config.json') {
+    res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');
+    res.end(JSON.stringify(await options.config()));return;
+   }
    const pathname=url.pathname==='/'?'/index.html':url.pathname;
    const sourceEntry=path.resolve(root,'my98/index.html');
    const file=pathname==='/index.html'&&existsSync(sourceEntry)?sourceEntry:path.resolve(root,'.'+pathname);

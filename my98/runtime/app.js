@@ -1,6 +1,3 @@
-import {CID} from 'multiformats/cid';
-import {publicKeyFromMultihash} from '@libp2p/crypto/keys';
-import {resolveIpns} from '../my98/src/disk/web/resolution.js';
 import {attachMatrixBridge} from '../scripts/exit-matrix/bridge.js';
 import {guardPresentationInput} from './presentation-input.js';
 
@@ -31,16 +28,6 @@ export async function loadRuntime(signal) {
         WebAssembly.compile(bytes[1]),
     ]);check(signal);
     return {...engine,...disk,...state,...pointer,module,bios:bytes[2],vgaBios:bytes[3],compatibility:'my98-state-adapter-1:'+hashes.join(':')};
-}
-export async function resolvePublication(ipnsName, signal, onCandidate) {
-    const publicKey=publicKeyFromMultihash(CID.parse(ipnsName).multihash).raw;
-    const validate=resolved=>{
-        if(resolved.path!=='/ipfs/'+resolved.rootCid)throw new Error('The publication must point to a disk and state directory.');
-        return resolved;
-    };
-    return validate(await resolveIpns({ipnsName,publicKey},{signal,deadlineMs:5000,
-        onCandidate:resolved=>onCandidate?.(validate(resolved)),
-    }));
 }
 function errorMessage(error) {
     console.error('Could not complete the request',error);
@@ -185,41 +172,24 @@ export class FutureSession {
             if(!response.ok)throw new Error('The site configuration could not be loaded.');
             const config=await response.json();check(signal);
             if(typeof config.readKey==='string' && config.readKey.startsWith('my98-ro-v1.'))throw new Error('This read key is outdated. Export a new read-only key.');
-            const select=publication=>{
-                check(signal);
-                if(this.publication?.rootCid===publication.rootCid) {this.publication=publication;return;}
-                this.cancelAttempt();this.publication=publication;
-                const attempt={controller:new AbortController(),metrics:{cid:publication.rootCid,selected:performance.now()-this.timings.started,phases:{}}};
-                this.attempt=attempt;this.timings.attempts.push(attempt.metrics);
-                // Serialize teardown/restoration while selection remains immediate.
-                this.attemptQueue=this.attemptQueue.then(async()=>{
-                    check(signal);check(attempt.controller.signal);
-                    await this.disposeSession();check(attempt.controller.signal);
-                    await runtime;check(signal);check(attempt.controller.signal);
-                    await this.restorePublication(publication,config,attempt);
-                }).catch(async error=>{
-                    if(attempt.controller.signal.aborted || signal.aborted)return;
-                    attempt.metrics.error=errorMessage(error);await this.disposeSession();
-                    if(this.attempt===attempt && !signal.aborted)this.status(attempt.metrics.error,true);
-                });
-            };
+            const attempt={controller:new AbortController(),metrics:{selected:performance.now()-this.timings.started,phases:{}}};
+            this.attempt=attempt;this.timings.attempts.push(attempt.metrics);
             this.timings.resolutionStart=performance.now()-this.timings.started;
-            const final=await resolvePublication(config.ipnsName,signal,select);check(signal);
-            select(final);this.timings.resolutionFinal=performance.now()-this.timings.started;
+            this.attemptQueue=this.attemptQueue.then(async()=>{
+                await runtime;check(signal);check(attempt.controller.signal);
+                await this.restorePublication(config,attempt);
+            });
             await this.attemptQueue;check(signal);
         } catch(error) {
-            this.cancelAttempt();await this.attemptQueue;await this.disposeSession();
+            this.cancelAttempt();await this.attemptQueue.catch(()=>{});await this.disposeSession();
+            this.attemptQueue=Promise.resolve();
             if(!signal.aborted) {this.status(errorMessage(error),true);}
         } finally {this.working=false;this.retry.disabled=false;}
     }
-    async restorePublication(publication,config,attempt) {
+    async restorePublication(config,attempt) {
         const signal=attempt.controller.signal;let restored;
         this.status('Getting things ready…');
         try {
-            const publicKey=publicKeyFromMultihash(CID.parse(config.ipnsName).multihash).raw;
-            const readPublicKey=this.runtime.readOnlyPublicKey(config.readKey);
-            if(publicKey.length!==readPublicKey.length || !publicKey.every((byte,i)=>byte===readPublicKey[i]))
-                throw new Error('The site’s read-only credential belongs to a different IPNS identity.');
             this.disk=await this.runtime.Slop86Disk.create({onProgress:p=>{
                 if(signal.aborted)return;
                 const phase=attempt.metrics.phases[p.phase]||={first:performance.now()-this.timings.started};
@@ -227,12 +197,14 @@ export class FutureSession {
                 if(['download-state','decrypt-state','decompress'].includes(p.phase))this.status('Getting things ready…');
             }});check(signal);
             attempt.disk=this.disk;check(signal);
-            const description=await this.disk.openReadOnly({cid:publication.rootCid,readKey:config.readKey,prefetch:{enabled:false},preloadState:true,persistentCache:{state:true,loadProfile:true}});check(signal);
-            if(!description.remote?.stateCid)throw new Error('The latest publication has no saved state.');
+            const description=await this.disk.openRemoteReadOnly({readKey:config.readKey,sources:config.sources,prefetchScope:"none"});check(signal);
+            this.publication={publicKey:description.remote.publicKey,infoHash:description.remote.publicationInfoHash,sequence:description.remote.sequence};
+            this.timings.resolutionFinal=performance.now()-this.timings.started;
+            if(!description.remote?.stateInfoHash)throw new Error('The latest publication has no saved state.');
             this.status('Getting things ready…');
             const container=document.createElement('div');container.innerHTML='<div></div><canvas></canvas>';
             attempt.metrics.opened=performance.now()-this.timings.started;
-            restored=await this.runtime.restoreMachineState({disk:this.disk,input:{published:true},compatibility:this.runtime.compatibility,signal,
+            restored=await this.runtime.restoreMachineState({disk:this.disk,input:{publication:true},compatibility:this.runtime.compatibility,signal,
                 createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;this.status('Almost there…');return this.createMachine(adapter,machineConfig,container,signal);},
                 onDiskError:async error=>{
                     if(signal.aborted)return;
@@ -254,7 +226,13 @@ export class FutureSession {
                 },onError:error=>{if(!signal.aborted)this.status(errorMessage(error),true);}});
             this.machine.add_listener('screen-set-size',this.resize);
             this.observer=new MutationObserver(this.resize);this.observer.observe(this.display.querySelector('canvas'),{attributes:true,attributeFilter:['width','height']});
-            await this.disk.setLoadPrefetch({origin:'restored',scope:'profile'});check(signal);
+            // Optional profile hints cannot prevent the verified state from running.
+            try {await this.disk.setLoadPrefetch({origin:'restored',scope:'profile'});}
+            catch(error) {
+                if(!['INVALID_PROFILE','PUBLICATION_UNAVAILABLE','TRANSPORT_TIMEOUT'].includes(error.code))throw error;
+                await this.disk.setLoadPrefetch({origin:'restored',scope:'none'});
+            }
+            check(signal);
             this.machine.run();
             // Let the restored VGA frame render before exposing the surface.
             await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));check(signal);
@@ -283,7 +261,7 @@ export class FutureSession {
             this.display.removeEventListener(type,this.allowTouchZoom,true);
         this.display.removeEventListener('wheel',this.allowWheelZoom,true);
         this.input.destroy();
-        await this.attemptQueue;await this.disposeSession();
+        await this.attemptQueue.catch(()=>{});await this.disposeSession();
     }
 }
 export function start() {

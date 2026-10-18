@@ -9,6 +9,9 @@ const assets = JSON.parse(fs.readFileSync('my98/my98/scripts/site-assets.json'))
 const names = [
     'build/libv86.mjs', 'build/v86.wasm', 'bios/seabios.bin', 'bios/bochs-vgabios.bin',
     'build/disk/web/client.js', 'build/disk/web/worker.js',
+    'build/torrent/webtorrent.min.js', 'build/torrent/webtorrent.min.js.LEGAL.txt',
+    'licenses/webtorrent.txt', 'licenses/events.txt', 'licenses/path-browserify.txt',
+    'licenses/process.txt', 'licenses/buffer.txt',
     'build/disk/pkg/slop86_disk.js', 'build/disk/pkg/slop86_disk_bg.wasm',
     'src/browser/machine-state.js', 'src/browser/direct-pointer.js',
     'LICENSE', 'bios/COPYING.LESSER', 'slop86/LICENSE', 'slop86/LICENSE.MIT',
@@ -34,9 +37,8 @@ for(const name of names) {
 }
 fs.mkdirSync('build/future', {recursive:true});
 const config = JSON.parse(fs.readFileSync('my98/runtime/config.json'));
-if(Object.keys(config).sort().join(',') !== 'ipnsName,readKey' ||
-    typeof config.ipnsName !== 'string' || !/^my98-ro-v2\.[A-Za-z0-9_-]{85}[AQgw]$/.test(config.readKey))
-    throw new Error('Expected only the public IPNS name and read-only credential');
+if(Object.keys(config).some(key=>!['readKey','sources'].includes(key)) || !/^my98-ro-v2\.[A-Za-z0-9_-]{85}[AQgw]$/.test(config.readKey))
+    throw new Error('Expected a public read-only credential and optional torrent sources');
 fs.writeFileSync('build/future/config.json', JSON.stringify(config) + '\n');
 esbuild.buildSync({entryPoints:['my98/runtime/app.js'], outfile:'build/future/app.js',
     bundle:true, format:'esm', target:'es2020', minify:true, legalComments:'linked',

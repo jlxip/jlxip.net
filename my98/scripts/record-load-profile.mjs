@@ -5,20 +5,17 @@ import {parseArgs} from 'node:util';
 import {mkdir,readFile,writeFile,rename} from 'node:fs/promises';
 import path from 'node:path';
 import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
-import {CID} from '../my98/node_modules/multiformats/dist/src/cid.js';
-import {sha256} from '../my98/node_modules/multiformats/dist/src/hashes/sha2.js';
-import * as dagPB from '../my98/node_modules/@ipld/dag-pb/src/index.js';
-import {UnixFS} from '../my98/node_modules/ipfs-unixfs/dist/src/index.js';
+import {TorrentFixture} from '../tests/torrent-fixture.mjs';
+import {DEFAULT_TORRENT_SOURCES} from '../my98/src/disk/web/torrent-sources.js';
 import {serveFuture} from '../tests/future-server.mjs';
 
-const {values}=parseArgs({options:{output:{type:'string'},site:{type:'string'},gateway:{type:'string'},'verify-only':{type:'boolean'},help:{type:'boolean'}}});
+const {values}=parseArgs({options:{output:{type:'string'},site:{type:'string'},source:{type:'string'},'machine-dir':{type:'string'},'verify-only':{type:'boolean'},help:{type:'boolean'}}});
 if(values.help) {
- console.log('Usage: node my98/scripts/record-load-profile.mjs [--output DIRECTORY] [--site DIRECTORY] [--gateway URL] [--verify-only]\nRecords all six links, then Exit The Matrix, from the published 800x600 homepage.\nChecks every action as the first click in fresh Chromium and WebKit sessions.\nWrites load-profiles.json only after all checks pass; never publishes or opens external tabs.\n--verify-only reuses candidate.json and record.json from an interrupted run.');
+ console.log('Usage: node my98/scripts/record-load-profile.mjs [--output DIRECTORY] [--site DIRECTORY] [--source API_URL] [--machine-dir DIRECTORY] [--verify-only]\nRecords all six links, then Exit The Matrix, from the published 800x600 homepage.\nChecks every action as the first click in fresh Chromium and WebKit sessions.\nWrites load-profiles.json only after all checks pass; never publishes or opens external tabs.\n--verify-only reuses candidate.json and record.json from an interrupted run.');
  process.exit(0);
 }
 const output=path.resolve(values.output||'build/load-profile-all-links');
-const gateway=(values.gateway||'https://piensa.jlxip.net').replace(/\/$/,'');
-assert(['http:','https:'].includes(new URL(gateway).protocol),'Gateway must use HTTP(S)');
+const sources=values.source?{apis:[values.source],webseeds:[values.source.replace(/\/$/,'')+'/content'],trackers:[]}:DEFAULT_TORRENT_SOURCES;
 await mkdir(output,{recursive:true});
 const actions=[
  {name:'my98',y:231,url:'https://my98.lol/'},
@@ -30,31 +27,44 @@ const actions=[
  {name:'Exit The Matrix',y:423,exit:true},
 ];
 const json=(name,value)=>writeFile(path.join(output,name),JSON.stringify(value,null,2)+'\n');
-const server=await serveFuture(path.resolve(values.site||'.'),true);
-let record,profile,wrapper,wrapperCid,profileBytes,profileCid;
+let record,profile,profileBytes,wrapperHash,recordingNow=true,server;
+const fixture=new TorrentFixture(),site=path.resolve(values.site||'.');
+const config=JSON.parse(await readFile('my98/runtime/config.json','utf8'));
+let immutableBase;
+if(values['machine-dir']) {
+ const directory=path.resolve(values['machine-dir']);
+ const disk=await fixture.add(path.join(directory,'disk.my98'),'disk.my98');
+ const state=await fixture.add(path.join(directory,'state.my98state'),'state.my98state');
+ const loadProfile=await fixture.add(path.join(directory,'load-profiles.json'),'profile.json');
+ immutableBase=await fixture.add(Buffer.from(JSON.stringify({version:1,disk,state,profile:loadProfile})),'publication.json');
+}
+
+server=await serveFuture(site,true,{
+ config:()=>({...config,sources:recordingNow&&!immutableBase?sources:fixture.sources(server.url)}),
+ handleRequest:async(req,res,url)=>{
+  const base='/build/my98-runtime/build/disk/web/';
+  if(url.pathname===base+'client.js') {
+   const patch=`export * from './client-original.js';import {Slop86Disk} from './client-original.js';
+const originalOpen=Slop86Disk.prototype.openRemoteReadOnly,originalPrefetch=Slop86Disk.prototype.setLoadPrefetch;
+Slop86Disk.prototype.openRemoteReadOnly=function(options){return originalOpen.call(this,{...options,${recordingNow&&!immutableBase?'':`infoHash:'${recordingNow?immutableBase:wrapperHash}',` }prefetchScope:'none'});};
+Slop86Disk.prototype.setLoadPrefetch=async function(options){
+ if(${recordingNow} && options.origin==='restored' && options.scope==='profile')await this.startLoadAnalysis({origin:'restored'});
+ return originalPrefetch.call(this,{...options,scope:${recordingNow}?'none':options.scope});
+};`;
+   res.setHeader('Content-Type','text/javascript');res.end(patch);return true;
+  }
+  if(url.pathname===base+'client-original.js'){
+   res.setHeader('Content-Type','text/javascript');res.end(await readFile(path.resolve(site,'build/my98-runtime/build/disk/web/client.js')));return true;
+  }
+  return fixture.handle(req,res,url);
+ }
+});
 async function session(browser,recording,run) {
  const context=await browser.newContext({viewport:{width:1100,height:850}});
  const page=await context.newPage(),errors=[];
  page.on('pageerror',error=>errors.push(String(error)));
- // Let intercepted module workers finish loading in WebKit before revocation.
- await context.addInitScript(()=>{const revoke=URL.revokeObjectURL.bind(URL);URL.revokeObjectURL=url=>setTimeout(()=>revoke(url),1000);});
+ recordingNow=recording;
  try {
-  await context.route('**/build/disk/web/client.js',async route=>{
-   const response=await route.fetch();
-   const patch=`\nconst originalOpen=Slop86Disk.prototype.openReadOnly, originalPrefetch=Slop86Disk.prototype.setLoadPrefetch;
-Slop86Disk.prototype.openReadOnly=function(options){return originalOpen.call(this,{...options,cid:${JSON.stringify(recording?null:wrapperCid)}||options.cid,gateway:${JSON.stringify(gateway)},prefetch:{enabled:false,trace:true}});};
-Slop86Disk.prototype.setLoadPrefetch=async function(options){
- if(${recording} && options.origin==='restored' && options.scope==='profile')await this.startLoadAnalysis({origin:'restored'});
- // Recording excludes speculation; verification keeps normal site behavior.
- return originalPrefetch.call(this,{...options,scope:${recording}?'none':options.scope});
-};`;
-   await route.fulfill({response,body:await response.text()+patch});
-  });
-  if(!recording)await context.route(gateway+'/ipfs/**',async route=>{
-   const cid=new URL(route.request().url()).pathname.split('/ipfs/')[1];
-   if(cid!==wrapperCid && cid!==profileCid)return route.continue();
-   await route.fulfill({status:200,contentType:'application/vnd.ipld.raw',headers:{'Access-Control-Allow-Origin':'*'},body:cid===wrapperCid?wrapper:profileBytes});
-  });
   const start=Date.now();await page.goto(server.url+'/index.html');
   await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:180000});
   assert(await page.locator('#display').isVisible(),await page.locator('#status').textContent());
@@ -62,8 +72,8 @@ Slop86Disk.prototype.setLoadPrefetch=async function(options){
   assert.deepEqual(await page.locator('canvas').evaluate(c=>[c.width,c.height]),[800,600],'Update action coordinates for the new guest resolution');
   const visibleMs=Date.now()-start;
   if(!recording) {
-   assert.equal(base.remote.cid,record.base.cid);assert.equal(base.remote.stateCid,record.base.stateCid);
-   await page.evaluate(async()=>{const until=performance.now()+120000;while(performance.now()<until){const r=(await session.disk.readStats()).remote;if(r.loadProfile?.status==='complete'&&r.prefetchState==='complete')return;await new Promise(r=>setTimeout(r,50));}throw Error('Profile did not complete');});
+   assert.equal(base.remote.infoHash,record.base.infoHash);assert.equal(base.remote.stateInfoHash,record.base.stateInfoHash);
+   await page.evaluate(async()=>{const until=performance.now()+120000;while(performance.now()<until){if([...session.disk.torrentHost.sessions.values()].every(transport=>[...transport.entries.values()].every(entry=>!entry.prefetch)))return;await new Promise(r=>setTimeout(r,50));}throw Error('Profile did not complete');});
   }
   await page.evaluate(()=>{
    window.actions={opens:[],inputs:[],codes:[],exits:[]};
@@ -109,7 +119,7 @@ try {
      console.log('Recorded:',action.name,Math.round(result.elapsedMs)+' ms');
     }
     [profile]=await page.evaluate(()=>session.disk.finishLoadAnalysis());
-    assert.equal(profile.version,2);assert.equal(profile.cid,info.base.cid);assert.equal(profile.origin.kind,'state');
+    assert.equal(profile.version,2);assert.equal(profile.infoHash,info.base.infoHash);assert.equal(profile.origin.kind,'state');
     await json('candidate.json',[profile]);
     await json('record-trace.json',await page.evaluate(()=>session.disk.readTrace()));
     await page.screenshot({path:path.join(output,'record-exit.png')});
@@ -119,13 +129,11 @@ try {
   }finally{await browser.close();}
  }
  assert.deepEqual(profile,record.profile,'Candidate must match the recorded journey');
- profileBytes=Buffer.from(JSON.stringify([profile]));profileCid=CID.createV1(0x55,await sha256.digest(profileBytes)).toString();
- wrapper=Buffer.from(dagPB.encode(dagPB.prepare({Data:new UnixFS({type:'directory'}).marshal(),Links:[
-  {Name:'disk.my98',Hash:CID.parse(record.base.cid),Tsize:0},
-  {Name:'state.my98state',Hash:CID.parse(record.base.stateCid),Tsize:0},
-  {Name:'load-profiles.json',Hash:CID.parse(profileCid),Tsize:profileBytes.length},
- ]})));wrapperCid=CID.createV1(0x70,await sha256.digest(wrapper)).toString();
- await writeFile(path.join(output,'publication.pb'),wrapper);
+ profileBytes=Buffer.from(JSON.stringify([profile]));
+ if(!fixture.objects.has(record.base.infoHash))await fixture.adopt(record.base.infoHash,'disk',sources);
+ if(!fixture.objects.has(record.base.stateInfoHash))await fixture.adopt(record.base.stateInfoHash,'state',sources);
+ const profileHash=await fixture.add(profileBytes,'profile.json');
+ wrapperHash=await fixture.add(Buffer.from(JSON.stringify({version:1,disk:record.base.infoHash,state:record.base.stateInfoHash,profile:profileHash})),'publication.json');
  const results=[];
  for(const [engine,type] of Object.entries({chromium,webkit})) {
   const browser=await type.launch();
@@ -133,8 +141,8 @@ try {
    for(const action of actions) {
     const result=await session(browser,false,async(page,info)=>({engine,...info,...await click(page,action)}));
     results.push(result);await json('verification.json',results);
-    assert.equal(result.networkRequests,0,`${engine}: ${action.name} is not fully covered`);
-    console.log('Verified:',engine,action.name,Math.round(result.elapsedMs)+' ms, no disk requests');
+    assert.equal(result.networkBytes,0,`${engine}: ${action.name} is not fully covered`);
+    console.log('Verified:',engine,action.name,Math.round(result.elapsedMs)+' ms, no network download');
    }
   }finally{await browser.close();}
  }

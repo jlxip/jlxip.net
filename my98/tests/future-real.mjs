@@ -5,7 +5,32 @@ import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 import {serveFuture} from './future-server.mjs';
 const root=path.resolve(process.env.SITE_ROOT||'.');
 const output=path.resolve(process.env.EVIDENCE||'build/future-real');await mkdir(output,{recursive:true});
-const server=await serveFuture(root,true),results=[];
+// MIGRATION_DIR serves the recovered immutable ciphertext locally. The test
+// overrides only the immutable descriptor target, without fabricating a signature
+// for the user's real identity. Normal runs resolve signed BEP46 from the nodes.
+let server,options={};
+if(process.env.MIGRATION_DIR) {
+ const {readFile}=await import('node:fs/promises');
+ const {TorrentFixture}=await import('./torrent-fixture.mjs');
+ const fixture=new TorrentFixture(),directory=path.resolve(process.env.MIGRATION_DIR);
+ const disk=await fixture.add(path.join(directory,'disk.my98'),'disk.my98');
+ const state=await fixture.add(path.join(directory,'state.my98state'),'state.my98state');
+ const profile=await fixture.add(path.join(directory,'load-profiles.json'),'profile.json');
+ const descriptor=await fixture.add(Buffer.from(JSON.stringify({version:1,disk,state,profile})),'publication.json');
+ const config=JSON.parse(await readFile('my98/runtime/config.json','utf8'));
+ options={config:()=>({...config,sources:fixture.sources(server.url)}),handleRequest:async(req,res,url)=>{
+  const pathname=url.pathname,base='/build/my98-runtime/build/disk/web/';
+  if(pathname===base+'client.js') {
+   res.setHeader('Content-Type','text/javascript');
+   res.end(`export * from './client-original.js';import {Slop86Disk} from './client-original.js';const open=Slop86Disk.prototype.openRemoteReadOnly;Slop86Disk.prototype.openRemoteReadOnly=function(options){return open.call(this,{...options,infoHash:'${descriptor}'});};`);return true;
+  }
+  if(pathname===base+'client-original.js') {
+   res.setHeader('Content-Type','text/javascript');res.end(await readFile(path.resolve(root,'build/my98-runtime/build/disk/web/client.js')));return true;
+  }
+  return fixture.handle(req,res,url);
+ }};
+}
+server=await serveFuture(root,true,options);const results=[];
 async function resizeViewport(page,size) {
  await page.setViewportSize(size);
  // Let the actual resize listener and rendering run; do not call fit from the test.
@@ -46,7 +71,7 @@ try {
  for(const [engine,type] of Object.entries({chromium,webkit})) for(const mobile of [false,true]) {
   if(process.env.ENGINE&&process.env.ENGINE!==engine)continue;
   if(process.env.DESKTOP_ONLY&&mobile)continue;
-  const browser=await type.launch();
+  const browser=await type.launch(process.env.PROXY?{proxy:{server:process.env.PROXY,bypass:"127.0.0.1,localhost"}}:{});
   try {
    const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1100,height:850},isMobile:mobile,hasTouch:mobile});
    const page=await context.newPage(),errors=[],networkFailures=[];
@@ -104,12 +129,12 @@ try {
    await page.screenshot({path:path.join(output,name+'-exit.png')});
    await resizeViewport(page,initialViewport);await checkFrame(page,false);
    await page.waitForFunction(async()=>{
-    const r=(await session.disk.readStats()).remote;
-    return r.prefetchState==='complete' && r.inFlight===0 && r.queued===0;
+    return [...session.disk.torrentHost.sessions.values()].every(transport=>[...transport.entries.values()].every(entry=>!entry.prefetch && entry.readers.size===0 && entry.torrent.wires.every(wire=>wire.requests.length===0)));
    },undefined,{timeout:120000});
+   await page.evaluate(()=>Promise.all([...session.disk.torrentHost.sessions.values()].flatMap(transport=>[...transport.entries.values()].map(entry=>entry.prefetchTask))));
    const afterExit=await page.evaluate(()=>session.disk.readStats());
-   assert.equal(afterExit.remote.loadProfile.scope,'profile','Exit preserves profile-only prefetch');
-   assert(afterExit.remote.completedUnits<afterExit.remote.totalUnits,'Exit leaves unused disk ranges unloaded');
+   assert.equal(afterExit.remote.scope,'profile','Exit preserves profile-only prefetch');
+   assert(!afterExit.remote.complete,'Exit leaves unused disk ranges unloaded');
    await page.waitForTimeout(1500);
    const idle=await page.evaluate(()=>session.disk.readStats());
    assert.equal(idle.networkBytes,afterExit.networkBytes,'idle desktop does not continue downloading disk data');
@@ -120,7 +145,7 @@ try {
    });
    assert.equal(demand.length,512,'uncached disk read still succeeds after Exit');
    assert(demand.stats.networkBytes>idle.networkBytes,'uncached read fetches disk data on demand');
-   assert.equal(demand.stats.remote.loadProfile.scope,'profile');
+   assert.equal(demand.stats.remote.scope,'profile');
    details.diskLoading={afterExit,idle,demand};
    if(!mobile) {
     await page.evaluate(()=>buttons=[]);
@@ -144,7 +169,7 @@ try {
     const r=canvas.getBoundingClientRect();session.bridge=bridge;
     return r.width<=innerWidth&&r.height<=innerHeight&&Math.abs(r.x+r.width/2-innerWidth/2)<1;
    });assert.equal(fallback,true);
-   results.push({engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,frames:frames.length,canvas:details.canvas,root:details.publication.rootCid}));
+   results.push({immutableLocal:!!process.env.MIGRATION_DIR,engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,frames:frames.length,canvas:details.canvas,infoHash:details.publication.infoHash}));
    await page.evaluate(()=>session.destroy());
   }finally{await browser.close();}
  }
