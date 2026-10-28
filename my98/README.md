@@ -25,6 +25,9 @@ and interactive commands.
 `index.html` resolves the latest signed BEP46 publication through my98's WebTorrent
 read-only API, restores its authenticated state, then starts the existing presentation.
 For a local preview run `make run` and open `http://127.0.0.1:8687/`.
+The built HTML selects a content-hashed app URL. All runtime imports, including
+client, Worker, bindings and WASM, share a content-addressed directory so a
+cached V1 client cannot be paired with a V2 Worker on a fresh load.
 Disk writes stay in RAM and disappear on reload. The configuration contains the
 existing public `my98-ro-v2` read key and optional `sources` (APIs, webseeds,
 trackers); its embedded public key identifies the publication. No password or
@@ -35,8 +38,10 @@ runtime produces an error and Retry. There is no cold-boot fallback. Retry after
 a disk-read failure resumes the same VM and retains its writes. Reload opens the
 latest accepted signed publication in a new session.
 
-The site opens with `prefetchScope:"none"`, restores the saved state and selects
-only its matching load profile. Exit The Matrix preserves that selection and the
+The site opens with `prefetchScope:"none"`, restores and displays the saved state,
+then loads only its matching optional profile after the first visible frame.
+Profile lookup and validation never delay presentation. Cancellation stops the
+scheduled lookup, and late failures from an old attempt cannot affect a new one. Exit The Matrix preserves that selection and the
 same session; unused ranges load on demand. An absent, invalid or unavailable
 optional profile leaves the restored machine on demand. WebTorrent caches verified
 ciphertext pieces in IndexedDB; profile ranges may include the surrounding 256 KiB
@@ -91,13 +96,24 @@ The real test uses signed BEP46 by default. Before republication, set
 to serve recovered ciphertext and a local immutable descriptor. This checks the
 real state and presentation without claiming a signed publication exists yet.
 
-Real VM tests expose `window.session` through `serveFuture(root, true)` on the
-HTTP server and verify that the CPU instruction counter advances. Avoid Playwright
-request routing even just to inject HTML: in WebKit it can prevent the emulator's
-immediately revoked Blob scheduling Worker from loading. The saved framebuffer and
-`is_running()` can then look correct while the CPU never advances. Keep request
-mocking in synthetic fixtures; use a server-side proxy when a real VM needs controlled
-network responses.
+The real-publication test observes `FutureSession.load` and `fit` through an
+init-script import of the page's original app module. A resize captures an already
+started session without reloading it. The test verifies that the CPU instruction
+counter advances. It serves the original HTML without rewriting or intercepting requests.
+To check the deployed site with the same assertions:
+
+```sh
+PUBLIC_URL=https://jlxip.net/ EVIDENCE=build/future-public node my98/tests/future-real.mjs
+```
+
+`PUBLIC_URL` and `MIGRATION_DIR` are mutually exclusive. The app import uses an
+absolute URL because WebKit cannot resolve a relative import in this init script.
+Avoid Playwright request routing even just to inject HTML: in WebKit it can prevent
+the emulator's immediately revoked Blob scheduling Worker from loading. The saved
+framebuffer and `is_running()` can then look correct while the CPU never advances.
+Keep request mocking in synthetic fixtures; use a server-side proxy when a real VM
+needs controlled network responses. Session teardown is bounded so a failed
+scheduling Worker cannot hang cleanup.
 
 The bridge's popup/no-opener/fallback behavior has separate browser tests above.
 

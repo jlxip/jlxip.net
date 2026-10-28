@@ -35,6 +35,15 @@ for(const name of names) {
         throw new Error(`Incompatible published-state runtime: ${name}`);
     fs.writeFileSync(destination, bytes);
 }
+// Relative Worker -> bindings -> WASM imports stay within this runtime version.
+const runtimeHashes = Object.fromEntries(names.map(name => [name, sha256(fs.readFileSync(path.join(runtime, name)))]));
+const runtimeVersion = sha256(Buffer.from(JSON.stringify(runtimeHashes)));
+const runtimeRoot = `../my98-runtime/releases/${runtimeVersion}/`;
+for(const name of names) {
+    const destination = path.join(runtime, 'releases', runtimeVersion, name);
+    fs.mkdirSync(path.dirname(destination), {recursive:true});
+    fs.copyFileSync(path.join(runtime, name), destination);
+}
 fs.mkdirSync('build/future', {recursive:true});
 const config = JSON.parse(fs.readFileSync('my98/runtime/config.json'));
 if(Object.keys(config).some(key=>!['readKey','sources'].includes(key)) || !/^my98-ro-v2\.[A-Za-z0-9_-]{85}[AQgw]$/.test(config.readKey))
@@ -42,7 +51,13 @@ if(Object.keys(config).some(key=>!['readKey','sources'].includes(key)) || !/^my9
 fs.writeFileSync('build/future/config.json', JSON.stringify(config) + '\n');
 esbuild.buildSync({entryPoints:['my98/runtime/app.js'], outfile:'build/future/app.js',
     bundle:true, format:'esm', target:'es2020', minify:true, legalComments:'linked',
-    nodePaths:[path.resolve('my98/my98/node_modules')]});
+    nodePaths:[path.resolve('my98/my98/node_modules')],
+    define:{__MY98_RUNTIME_ROOT__:JSON.stringify(runtimeRoot)}});
+const appVersion = sha256(fs.readFileSync('build/future/app.js'));
+const entry = fs.readFileSync('my98/index.html', 'utf8');
+if(!entry.includes("import('./build/future/app.js')"))throw new Error('Missing site application entry');
+fs.writeFileSync('build/future/index.html', entry.replace("import('./build/future/app.js')", `import('./build/future/app.js?v=${appVersion}')`));
+fs.writeFileSync('build/release-manifest.json', JSON.stringify({runtimeVersion, appVersion, runtimeRoot}, null, 2)+'\n');
 const hashes = Object.fromEntries(names.map(name => [name,
     createHash('sha256').update(fs.readFileSync(path.join(runtime, name))).digest('hex')]));
 fs.writeFileSync('build/runtime-manifest.json', JSON.stringify(hashes, null, 2) + '\n');

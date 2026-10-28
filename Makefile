@@ -11,7 +11,7 @@ runtime:
 site: runtime
 	rm -rf build/site
 	mkdir -p build/site/build
-	cp my98/index.html build/site/
+	cp build/future/index.html build/site/index.html
 	cp -R static/. build/site/
 	cp static/TFG.pdf build/site/theses/TFG.pdf
 	cp -R build/future build/my98-runtime build/site/build/
@@ -35,8 +35,9 @@ site-test-clean:
 input-test:
 	node --test my98/tests/presentation-input-unit.mjs
 
-future-test: all input-test
+future-test: site input-test
 	node my98/tests/presentation-input.mjs
 	node my98/tests/zoom-exit.mjs
 	cd my98/my98 && CARGO_TARGET_DIR="$(CURDIR)/my98/my98/build/disk-target" cargo build --manifest-path src/disk/Cargo.toml --locked --release --example compat
 	node my98/tests/future.mjs
+	node my98/tests/runtime-cache.mjs

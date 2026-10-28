@@ -50,3 +50,13 @@ for name, expected in json.loads(Path("build/runtime-manifest.json").read_text()
     actual = hashlib.sha256((site / "build/my98-runtime" / name).read_bytes()).hexdigest()
     assert actual == expected, f"Changed runtime asset: {name}"
 print("State runtime manifest: PASS")
+
+# Follow the versioned entry and verify every file inside its runtime graph.
+release = json.loads(Path("build/release-manifest.json").read_text())
+app = site / "build/future/app.js"
+assert hashlib.sha256(app.read_bytes()).hexdigest() == release["appVersion"]
+assert f"app.js?v={release['appVersion']}" in (site / "index.html").read_text()
+versioned = site / "build/my98-runtime/releases" / release["runtimeVersion"]
+for name, expected in json.loads(Path("build/runtime-manifest.json").read_text()).items():
+    assert hashlib.sha256((versioned / name).read_bytes()).hexdigest() == expected, f"Mixed runtime release: {name}"
+print("Versioned entry and runtime graph: PASS")

@@ -7,6 +7,7 @@ const seed=Buffer.from('c80e4484997cdd302848d0348e56e84e089089fe14e03dcf681fe9ce
 const key=createPrivateKey({key:Buffer.concat([Buffer.from('302e020100300506032b657004220420','hex'),seed]),format:'der',type:'pkcs8'});
 export const publicKey=createPublicKey(key).export({format:'der',type:'spki'}).subarray(-32).toString('hex');
 function encode(value) {
+ if(Array.isArray(value))return Buffer.concat([Buffer.from('l'),...value.map(encode),Buffer.from('e')]);
  if(Number.isInteger(value))return Buffer.from('i'+value+'e');
  if(typeof value==='string')value=Buffer.from(value);
  if(value instanceof Uint8Array)return Buffer.concat([Buffer.from(value.length+':'),value]);
@@ -25,7 +26,7 @@ export class TorrentFixture {
    }
    const info={name,length:size,'piece length':262144,pieces:Buffer.concat(pieces)};
    const hash=createHash('sha1').update(encode(info)).digest('hex');
-   this.objects.set(hash,{bytes,file:typeof input==='string'?input:undefined,name,size,metadata:encode({info})});return hash;
+   this.objects.set(hash,{bytes,file:typeof input==='string'?input:undefined,name,size,info:encode(info),metadata:encode({info})});return hash;
   }finally{await file?.close();}
  }
  async publish(disk,state,profile) {
@@ -38,23 +39,29 @@ export class TorrentFixture {
  sources(url){return {apis:[url],trackers:[],webseeds:[url+'/content']};}
  async adopt(hash,kind,sources) {
   for(const api of sources.apis)try {
-   const response=await fetch(api+'/v1/torrents/'+hash+'.torrent',{signal:AbortSignal.timeout(10000)});
+   const response=await fetch(api+'/v2/info/'+hash,{signal:AbortSignal.timeout(10000)});
    if(!response.ok)continue;
-   const metadata=new Uint8Array(await response.arrayBuffer()),parsed=await verifyMetadata(metadata,hash,kind);
-   this.objects.set(hash,{name:parsed.filename,size:parsed.size,metadata,proxy:sources.webseeds});return;
+   const raw=Buffer.from(await response.arrayBuffer()),metadata=Buffer.concat([Buffer.from('d4:info'),raw,Buffer.from('e')]),parsed=await verifyMetadata(metadata,hash,kind);
+   this.objects.set(hash,{name:parsed.filename,size:parsed.size,info:raw,metadata,proxy:sources.webseeds});return;
   }catch{}
   throw Error('No verified metadata for '+hash);
  }
  async handle(req,res,url) {
-  const path=url.pathname;if(!path.startsWith('/v1/')&&!path.startsWith('/content/'))return false;
+  const path=url.pathname;if(!path.startsWith('/v2/')&&!path.startsWith('/content/'))return false;
   res.setHeader('Cache-Control','no-store');
   if(this.mode==='offline'){res.writeHead(503).end();return true;}
-  if(path==='/v1/names/'+publicKey) {
+  if(path==='/v2/dht/'+publicKey+'/'+Buffer.from('my98/locations/v1').toString('hex')) {
+   const salt=Buffer.from('my98/locations/v1'),sequence=this.sequence,origins=[new URL(req.url,"http://"+req.headers.host).origin];
+   const value=encode({origins,version:1});
+   const payload=Buffer.concat([Buffer.from('4:salt'+salt.length+':'),salt,Buffer.from('3:seqi'+sequence+'e1:v'),value]);
+   res.setHeader('Content-Type','application/json');res.end(JSON.stringify({publicKey,sequence,origins,salt:salt.toString('hex'),signature:sign(null,payload,key).toString('hex')}));return true;
+  }
+  if(path==='/v2/dht/'+publicKey+'/'+Buffer.from('my98/publication/v1').toString('hex')) {
    const record={...this.record};if(this.mode==='bad-signature')record.signature='00'.repeat(64);
    res.setHeader('Content-Type','application/json');res.end(JSON.stringify(record));return true;
   }
-  const metadata=path.match(/^\/v1\/torrents\/([a-f0-9]{40})\.torrent$/);
-  if(metadata&&this.objects.has(metadata[1])){res.end(this.objects.get(metadata[1]).metadata);return true;}
+  const metadata=path.match(/^\/v2\/info\/([a-f0-9]{40})$/);
+  if(metadata&&this.objects.has(metadata[1])){res.end(this.objects.get(metadata[1]).info);return true;}
   const content=path.match(/^\/content\/([a-f0-9]{40})\/([^/]+)$/),object=this.objects.get(content?.[1]);
   if(object&&content[2]===object.name) {
    const range=req.headers.range?.match(/^bytes=(\d+)-(\d+)$/);

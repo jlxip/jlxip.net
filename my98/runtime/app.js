@@ -1,7 +1,9 @@
 import {attachMatrixBridge} from '../scripts/exit-matrix/bridge.js';
 import {guardPresentationInput} from './presentation-input.js';
 
-const runtimeURL = path => new URL('../my98-runtime/' + path, import.meta.url);
+// The packager gives the complete runtime graph one content-addressed directory.
+const runtimeRoot = typeof __MY98_RUNTIME_ROOT__ === 'string' ? __MY98_RUNTIME_ROOT__ : '../my98-runtime/';
+const runtimeURL = path => new URL(runtimeRoot + path, import.meta.url);
 // Content bounds (with breathing room) of the published 800×600 IE home page.
 // Revisit these bounds if the guest page is redesigned; other resolutions fit in full.
 const PRESENTATION = Object.freeze({width:800,height:600,left:8,top:152,right:208,bottom:448});
@@ -138,6 +140,7 @@ export class FutureSession {
     }
     cancelAttempt() {
         this.input.reset();
+        if(this.attempt?.profileFrame!==undefined)cancelAnimationFrame(this.attempt.profileFrame);
         this.attempt?.controller.abort();
         this.attempt?.disk?.cancel();this.attempt?.disk?.terminate();
         this.pointer?.release();this.display.hidden=true;
@@ -226,12 +229,6 @@ export class FutureSession {
                 },onError:error=>{if(!signal.aborted)this.status(errorMessage(error),true);}});
             this.machine.add_listener('screen-set-size',this.resize);
             this.observer=new MutationObserver(this.resize);this.observer.observe(this.display.querySelector('canvas'),{attributes:true,attributeFilter:['width','height']});
-            // Optional profile hints cannot prevent the verified state from running.
-            try {await this.disk.setLoadPrefetch({origin:'restored',scope:'profile'});}
-            catch(error) {
-                if(!['INVALID_PROFILE','PUBLICATION_UNAVAILABLE','TRANSPORT_TIMEOUT'].includes(error.code))throw error;
-                await this.disk.setLoadPrefetch({origin:'restored',scope:'none'});
-            }
             check(signal);
             this.machine.run();
             // Let the restored VGA frame render before exposing the surface.
@@ -239,10 +236,30 @@ export class FutureSession {
             if(this.adapter.failed)throw this.adapter.error;
             this.display.hidden=false;this.fit();this.status('');
             attempt.metrics.visible=performance.now()-this.timings.started;
+            // Let this visible frame paint before fetching optional profile hints.
+            attempt.profileFrame=requestAnimationFrame(()=>{
+                attempt.profileFrame=undefined;
+                attempt.profileTask=this.loadOptionalProfile(attempt);
+            });
         } catch(error) {
             if(restored && this.machine!==restored.machine) {await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
             await this.disposeSession();throw error;
         }
+    }
+    async loadOptionalProfile(attempt) {
+        const {disk,controller}=attempt;
+        const current=()=>!this.destroyed && !controller.signal.aborted &&
+            this.attempt===attempt && this.disk===disk;
+        if(!current())return;
+        attempt.metrics.profileStarted=performance.now()-this.timings.started;
+        try {await disk.setLoadPrefetch({origin:'restored',scope:'profile'});}
+        catch {
+            // Optional failures must not undo a running, verified presentation.
+            // Capture the disk and reject stale attempts before applying fallback.
+            if(!current())return;
+            try {await disk.setLoadPrefetch({origin:'restored',scope:'none'});}catch{}
+        }
+        if(current())attempt.metrics.profileFinished=performance.now()-this.timings.started;
     }
     async retryDisk() {
         if(this.working||this.destroyed)return;

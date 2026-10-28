@@ -6,13 +6,16 @@ export async function serveFuture(root=process.cwd(),instrument=false,options={}
  const server=http.createServer(async(req,res)=>{
   try {
    const url=new URL(req.url,'http://localhost');
-   if(await options.handleRequest?.(req,res,url))return;
+   const fixtureURL=new URL(url);
+   fixtureURL.pathname=fixtureURL.pathname.replace(/\/build\/my98-runtime\/releases\/[a-f0-9]{64}\//,'/build/my98-runtime/');
+   if(await options.handleRequest?.(req,res,fixtureURL))return;
    if(options.config && url.pathname==='/build/future/config.json') {
     res.setHeader('Content-Type','application/json');res.setHeader('Cache-Control','no-store');
     res.end(JSON.stringify(await options.config()));return;
    }
    const pathname=url.pathname==='/'?'/index.html':url.pathname;
-   const sourceEntry=path.resolve(root,'my98/index.html');
+   const builtEntry=path.resolve(root,'build/future/index.html');
+   const sourceEntry=existsSync(builtEntry)?builtEntry:path.resolve(root,'my98/index.html');
    const file=pathname==='/index.html'&&existsSync(sourceEntry)?sourceEntry:path.resolve(root,'.'+pathname);
    if(!file.startsWith(path.resolve(root)+path.sep))throw Error('outside root');
    let bytes=await readFile(file);

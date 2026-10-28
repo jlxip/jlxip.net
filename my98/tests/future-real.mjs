@@ -8,6 +8,8 @@ const output=path.resolve(process.env.EVIDENCE||'build/future-real');await mkdir
 // MIGRATION_DIR serves the recovered immutable ciphertext locally. The test
 // overrides only the immutable descriptor target, without fabricating a signature
 // for the user's real identity. Normal runs resolve signed BEP46 from the nodes.
+const publicURL=process.env.PUBLIC_URL;
+assert(!(publicURL&&process.env.MIGRATION_DIR),'PUBLIC_URL and MIGRATION_DIR are mutually exclusive');
 let server,options={};
 if(process.env.MIGRATION_DIR) {
  const {readFile}=await import('node:fs/promises');
@@ -15,8 +17,15 @@ if(process.env.MIGRATION_DIR) {
  const fixture=new TorrentFixture(),directory=path.resolve(process.env.MIGRATION_DIR);
  const disk=await fixture.add(path.join(directory,'disk.my98'),'disk.my98');
  const state=await fixture.add(path.join(directory,'state.my98state'),'state.my98state');
- const profile=await fixture.add(path.join(directory,'load-profiles.json'),'profile.json');
- const descriptor=await fixture.add(Buffer.from(JSON.stringify({version:1,disk,state,profile})),'publication.json');
+ const {existsSync}=await import('node:fs');
+ const exact=existsSync(path.join(directory,'record.json'));
+ const profile=await fixture.add(path.join(directory,exact?'profile.json':'load-profiles.json'),'profile.json');
+ const descriptor=await fixture.add(exact?path.join(directory,'publication.json'):Buffer.from(JSON.stringify({version:1,disk,state,profile})),'publication.json');
+ if(exact) {
+  const record=JSON.parse(await readFile(path.join(directory,'record.json'))),publication=JSON.parse(await readFile(path.join(directory,'publication.json')));
+  assert.equal(descriptor,record.infoHash);assert.deepEqual(publication,{version:1,disk,state,profile});
+  console.log('Exact published ciphertext hashes preserved',descriptor);
+ }
  const config=JSON.parse(await readFile('my98/runtime/config.json','utf8'));
  options={config:()=>({...config,sources:fixture.sources(server.url)}),handleRequest:async(req,res,url)=>{
   const pathname=url.pathname,base='/build/my98-runtime/build/disk/web/';
@@ -30,7 +39,37 @@ if(process.env.MIGRATION_DIR) {
   return fixture.handle(req,res,url);
  }};
 }
-server=await serveFuture(root,true,options);const results=[];
+server=publicURL?{url:publicURL,close:async()=>{}}:await serveFuture(root,false,options);const results=[];
+async function observeSession(context) {
+ const entry=await (await fetch(server.url.replace(/\/?$/,'/'))).text();
+ const appPath=entry.match(/import\(['"]([^'"]*build\/future\/app\.js[^'"]*)['"]\)/)?.[1];
+ assert(appPath,'Missing application import in the served entry');
+ // Import the same module as the page instead of routing/replacing its HTML.
+ // WebKit request interception breaks immediately revoked Blob Workers, leaving
+ // the saved framebuffer visible but the emulated CPU stopped at zero.
+ await context.addInitScript(({appURL})=>{
+  window.sessionObserver={ready:false,error:null};
+  import(appURL).then(({FutureSession})=>{
+   for(const method of ['load','fit']) {
+    const original=FutureSession?.prototype?.[method];
+    if(typeof original!=='function')throw Error('Missing FutureSession.'+method);
+    FutureSession.prototype[method]=function(...args){window.session=this;return Reflect.apply(original,this,args);};
+   }
+   // The page's import may start load before ours resolves. An existing session
+   // has a resize listener that calls this.fit(), so capture it without reloading.
+   window.dispatchEvent(new Event('resize'));
+   sessionObserver.ready=true;
+  }).catch(error=>{sessionObserver.error=String(error);});
+ },{appURL:new URL(appPath,server.url.replace(/\/?$/,'/')).href});
+}
+async function destroySession(page) {
+ let timer;
+ try {
+  await Promise.race([page.evaluate(()=>window.session?.destroy()),new Promise((_,reject)=>{
+   timer=setTimeout(()=>reject(Error('Session teardown exceeded 5 seconds')),5000);
+  })]);
+ }finally{clearTimeout(timer);}
+}
 async function resizeViewport(page,size) {
  await page.setViewportSize(size);
  // Let the actual resize listener and rendering run; do not call fit from the test.
@@ -74,11 +113,14 @@ try {
   const browser=await type.launch(process.env.PROXY?{proxy:{server:process.env.PROXY,bypass:"127.0.0.1,localhost"}}:{});
   try {
    const context=await browser.newContext({viewport:mobile?{width:390,height:844}:{width:1100,height:850},isMobile:mobile,hasTouch:mobile});
+   await observeSession(context);
    const page=await context.newPage(),errors=[],networkFailures=[];
    page.on('pageerror',e=>errors.push(String(e)));
    page.on('requestfailed',r=>networkFailures.push({url:r.url(),error:r.failure()?.errorText}));
    page.on('console',m=>{if(m.type()==='error')console.log(engine,m.text());});
-   const begin=Date.now();await page.goto(server.url+'/');
+   const begin=Date.now();await page.goto(server.url.replace(/\/?$/,'/'));
+   await page.waitForFunction(()=>window.sessionObserver?.ready||window.sessionObserver?.error,undefined,{timeout:10000});
+   assert.equal(await page.evaluate(()=>sessionObserver.error),null,'Session observer failed');
    await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:180000});
    const loadMilliseconds=Date.now()-begin;
    const status=await page.locator('#status').textContent();assert.equal(await page.locator('#display').isVisible(),true,status);
@@ -88,6 +130,7 @@ try {
    await page.waitForFunction(previous=>session.machine.get_instruction_counter()!==previous,initialInstructions,{timeout:5000});
    await page.waitForTimeout(2000);
    const details=await page.evaluate(()=>({publication:session.publication,running:session.machine.is_running(),compatibility:session.runtime.compatibility,pointer:session.pointer.enabled,keyboard:session.machine.keyboard_adapter.emu_enabled,fullscreen:!!document.fullscreenElement,pointerLock:!!document.pointerLockElement,canvas:{width:document.querySelector('canvas').width,height:document.querySelector('canvas').height},rect:(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};})()}));
+   details.cpu={initialInstructions,afterInstructions:await page.evaluate(()=>session.machine.get_instruction_counter())};
    details.description=await page.evaluate(()=>session.disk.describe());
    assert.equal(details.running,true);assert.equal(details.pointer,true);assert.equal(details.keyboard,false);assert.equal(details.fullscreen,false);assert.equal(details.pointerLock,false);
    assert.deepEqual(errors,[]);
@@ -169,8 +212,8 @@ try {
     const r=canvas.getBoundingClientRect();session.bridge=bridge;
     return r.width<=innerWidth&&r.height<=innerHeight&&Math.abs(r.x+r.width/2-innerWidth/2)<1;
    });assert.equal(fallback,true);
-   results.push({immutableLocal:!!process.env.MIGRATION_DIR,engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,frames:frames.length,canvas:details.canvas,infoHash:details.publication.infoHash}));
-   await page.evaluate(()=>session.destroy());
+   results.push({publicURL:publicURL||null,immutableLocal:!!process.env.MIGRATION_DIR,engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,frames:frames.length,canvas:details.canvas,infoHash:details.publication.infoHash}));
+   await destroySession(page);
   }finally{await browser.close();}
  }
 }finally{await server.close();await writeFile(path.join(output,'results.json'),JSON.stringify(results,null,2)+'\n');}
