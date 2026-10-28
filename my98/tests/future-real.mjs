@@ -130,6 +130,13 @@ try {
    await page.waitForFunction(previous=>session.machine.get_instruction_counter()!==previous,initialInstructions,{timeout:5000});
    await page.waitForTimeout(2000);
    const details=await page.evaluate(()=>({publication:session.publication,running:session.machine.is_running(),compatibility:session.runtime.compatibility,pointer:session.pointer.enabled,keyboard:session.machine.keyboard_adapter.emu_enabled,fullscreen:!!document.fullscreenElement,pointerLock:!!document.pointerLockElement,canvas:{width:document.querySelector('canvas').width,height:document.querySelector('canvas').height},rect:(()=>{const r=document.querySelector('canvas').getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height};})()}));
+   details.startup=await page.evaluate(()=>session.attempt.metrics);
+   const startup=details.startup;
+   assert(['complete','fallback'].includes(startup.prefetch?.outcome),'Startup must record a completed prefetch decision');
+   for(const phase of ['prefetchStarted','restored','prefetchFinished','visible'])assert(Number.isFinite(startup[phase]),'Missing startup timing: '+phase);
+   assert(startup.prefetchFinished>=startup.restored,'Prefetch barrier must finish after restoration');
+   assert(startup.visible>=startup.prefetchFinished,'Presentation appeared before the prefetch decision');
+   const prefetchScope=startup.prefetch.outcome==='complete'?'profile':'none';
    details.cpu={initialInstructions,afterInstructions:await page.evaluate(()=>session.machine.get_instruction_counter())};
    details.description=await page.evaluate(()=>session.disk.describe());
    assert.equal(details.running,true);assert.equal(details.pointer,true);assert.equal(details.keyboard,false);assert.equal(details.fullscreen,false);assert.equal(details.pointerLock,false);
@@ -176,7 +183,7 @@ try {
    },undefined,{timeout:120000});
    await page.evaluate(()=>Promise.all([...session.disk.torrentHost.sessions.values()].flatMap(transport=>[...transport.entries.values()].map(entry=>entry.prefetchTask))));
    const afterExit=await page.evaluate(()=>session.disk.readStats());
-   assert.equal(afterExit.remote.scope,'profile','Exit preserves profile-only prefetch');
+   assert.equal(afterExit.remote.scope,prefetchScope,'Exit preserves the startup prefetch decision');
    assert(!afterExit.remote.complete,'Exit leaves unused disk ranges unloaded');
    await page.waitForTimeout(1500);
    const idle=await page.evaluate(()=>session.disk.readStats());
@@ -188,7 +195,7 @@ try {
    });
    assert.equal(demand.length,512,'uncached disk read still succeeds after Exit');
    assert(demand.stats.networkBytes>idle.networkBytes,'uncached read fetches disk data on demand');
-   assert.equal(demand.stats.remote.scope,'profile');
+   assert.equal(demand.stats.remote.scope,prefetchScope,'Demand reads preserve the startup prefetch policy');
    details.diskLoading={afterExit,idle,demand};
    if(!mobile) {
     await page.evaluate(()=>buttons=[]);
@@ -212,7 +219,7 @@ try {
     const r=canvas.getBoundingClientRect();session.bridge=bridge;
     return r.width<=innerWidth&&r.height<=innerHeight&&Math.abs(r.x+r.width/2-innerWidth/2)<1;
    });assert.equal(fallback,true);
-   results.push({publicURL:publicURL||null,immutableLocal:!!process.env.MIGRATION_DIR,engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,frames:frames.length,canvas:details.canvas,infoHash:details.publication.infoHash}));
+   results.push({publicURL:publicURL||null,immutableLocal:!!process.env.MIGRATION_DIR,engine,mobile,frames,unknownResolutionFits:fallback,audioState,externalLink:true,exitOnce:true,keyboardAfterExit:true,loadMilliseconds,...details,networkFailures,errors});console.log(name,JSON.stringify({loadMilliseconds,prefetch:startup.prefetch,prefetchFinished:startup.prefetchFinished,frames:frames.length,canvas:details.canvas,infoHash:details.publication.infoHash}));
    await destroySession(page);
   }finally{await browser.close();}
  }

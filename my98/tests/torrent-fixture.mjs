@@ -49,6 +49,7 @@ export class TorrentFixture {
  async handle(req,res,url) {
   const path=url.pathname;if(!path.startsWith('/v2/')&&!path.startsWith('/content/'))return false;
   res.setHeader('Cache-Control','no-store');
+  if(this.beforeRequest && await this.beforeRequest({req,res,url}))return true;
   if(this.mode==='offline'){res.writeHead(503).end();return true;}
   if(path==='/v2/dht/'+publicKey+'/'+Buffer.from('my98/locations/v1').toString('hex')) {
    const salt=Buffer.from('my98/locations/v1'),sequence=this.sequence,origins=[new URL(req.url,"http://"+req.headers.host).origin];
@@ -80,6 +81,9 @@ export class TorrentFixture {
     if(!bytes){res.writeHead(503).end();return true;}
    }
    if(object.file){const file=await open(object.file);try{bytes=Buffer.alloc(last-first+1);await file.read(bytes,0,bytes.length,first);}finally{await file.close();}}
+   if(this.contentResponse)bytes=await this.contentResponse({hash:content[1],first,last,bytes});
+   if(res.destroyed)return true;
+   if(!bytes){res.writeHead(503).end();return true;}
    res.writeHead(206,{'Content-Length':bytes.length,'Content-Range':`bytes ${first}-${last}/${object.size}`,'Accept-Ranges':'bytes'}).end(bytes);return true;
   }
   res.writeHead(404).end();return true;

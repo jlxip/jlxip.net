@@ -38,6 +38,7 @@ function errorMessage(error) {
 
 export class FutureSession {
     constructor() {
+        this.prefetchPolicy={scope:'profile',maxAttempts:3,postRestoreBudgetMs:10000,windowPieces:8};
         this.runtimeAbort=new AbortController();this.attemptQueue=Promise.resolve();
         this.display=document.getElementById('display');
         this.panel=document.getElementById('loading');
@@ -140,7 +141,6 @@ export class FutureSession {
     }
     cancelAttempt() {
         this.input.reset();
-        if(this.attempt?.profileFrame!==undefined)cancelAnimationFrame(this.attempt.profileFrame);
         this.attempt?.controller.abort();
         this.attempt?.disk?.cancel();this.attempt?.disk?.terminate();
         this.pointer?.release();this.display.hidden=true;
@@ -191,24 +191,30 @@ export class FutureSession {
     }
     async restorePublication(config,attempt) {
         const signal=attempt.controller.signal;let restored;
-        this.status('Getting things ready…');
+        attempt.downloading=true;attempt.downloaded=0;
+        this.status('Downloading...');
         try {
             this.disk=await this.runtime.Slop86Disk.create({onProgress:p=>{
                 if(signal.aborted)return;
                 const phase=attempt.metrics.phases[p.phase]||={first:performance.now()-this.timings.started};
                 Object.assign(phase,{last:performance.now()-this.timings.started,completed:p.completed,total:p.total});
-                if(['download-state','decrypt-state','decompress'].includes(p.phase))this.status('Getting things ready…');
+                if(p.phase==='download-startup' && attempt.downloading && this.attempt===attempt && !this.destroyed &&
+                    Number.isSafeInteger(p.total) && p.total>0 && Number.isSafeInteger(p.completed) && p.completed>=0 && p.completed<=p.total) {
+                    if(attempt.downloadTotal!==undefined && attempt.downloadTotal!==p.total)return;
+                    attempt.downloadTotal=p.total;attempt.downloaded=Math.max(attempt.downloaded,p.completed);
+                    this.status(`Downloading...\n${(attempt.downloaded/1048576).toFixed(1)} / ${(p.total/1048576).toFixed(1)} MiB`);
+                }
             }});check(signal);
             attempt.disk=this.disk;check(signal);
             const description=await this.disk.openRemoteReadOnly({readKey:config.readKey,sources:config.sources,prefetchScope:"none"});check(signal);
             this.publication={publicKey:description.remote.publicKey,infoHash:description.remote.publicationInfoHash,sequence:description.remote.sequence};
             this.timings.resolutionFinal=performance.now()-this.timings.started;
             if(!description.remote?.stateInfoHash)throw new Error('The latest publication has no saved state.');
-            this.status('Getting things ready…');
             const container=document.createElement('div');container.innerHTML='<div></div><canvas></canvas>';
             attempt.metrics.opened=performance.now()-this.timings.started;
-            restored=await this.runtime.restoreMachineState({disk:this.disk,input:{publication:true},compatibility:this.runtime.compatibility,signal,
-                createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;this.status('Almost there…');return this.createMachine(adapter,machineConfig,container,signal);},
+            attempt.metrics.prefetchStarted=performance.now()-this.timings.started;
+            restored=await this.runtime.restoreMachineState({disk:this.disk,input:{publication:true,prefetch:{...this.prefetchPolicy}},compatibility:this.runtime.compatibility,signal,
+                createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;return this.createMachine(adapter,machineConfig,container,signal);},
                 onDiskError:async error=>{
                     if(signal.aborted)return;
                     this.input.reset();
@@ -219,6 +225,11 @@ export class FutureSession {
             check(signal);
             attempt.metrics.restored=performance.now()-this.timings.started;
             this.machine=restored.machine;this.adapter=restored.adapter;
+            attempt.prefetchTask=this.disk.waitLoadPrefetch(restored.prefetchId);
+            const prefetch=await attempt.prefetchTask;check(signal);
+            attempt.metrics.prefetchFinished=performance.now()-this.timings.started;
+            attempt.metrics.prefetch=prefetch;
+            attempt.downloading=false;this.status('Almost there…');
             this.display.replaceChildren(...container.childNodes);
             this.display.querySelector('canvas').id='vga';
             this.pointer=this.runtime.setupDirectPointer({display:this.display,getSurface:()=>this.display.querySelector('canvas'),getMachine:()=>this.machine,focus:()=>this.display.focus({preventScroll:true})});
@@ -236,30 +247,11 @@ export class FutureSession {
             if(this.adapter.failed)throw this.adapter.error;
             this.display.hidden=false;this.fit();this.status('');
             attempt.metrics.visible=performance.now()-this.timings.started;
-            // Let this visible frame paint before fetching optional profile hints.
-            attempt.profileFrame=requestAnimationFrame(()=>{
-                attempt.profileFrame=undefined;
-                attempt.profileTask=this.loadOptionalProfile(attempt);
-            });
         } catch(error) {
+            attempt.downloading=false;
             if(restored && this.machine!==restored.machine) {await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
             await this.disposeSession();throw error;
         }
-    }
-    async loadOptionalProfile(attempt) {
-        const {disk,controller}=attempt;
-        const current=()=>!this.destroyed && !controller.signal.aborted &&
-            this.attempt===attempt && this.disk===disk;
-        if(!current())return;
-        attempt.metrics.profileStarted=performance.now()-this.timings.started;
-        try {await disk.setLoadPrefetch({origin:'restored',scope:'profile'});}
-        catch {
-            // Optional failures must not undo a running, verified presentation.
-            // Capture the disk and reject stale attempts before applying fallback.
-            if(!current())return;
-            try {await disk.setLoadPrefetch({origin:'restored',scope:'none'});}catch{}
-        }
-        if(current())attempt.metrics.profileFinished=performance.now()-this.timings.started;
     }
     async retryDisk() {
         if(this.working||this.destroyed)return;

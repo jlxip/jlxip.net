@@ -33,19 +33,38 @@ existing public `my98-ro-v2` read key and optional `sources` (APIs, webseeds,
 trackers); its embedded public key identifies the publication. No password or
 signing key is included. IPNS names and CID arguments are no longer used.
 
+The loading message shows `Downloading...`, then `received / total MiB` on the
+line below once both download targets are known (one decimal, 1 MiB = 1,048,576
+bytes). It combines encrypted state bytes with the unique torrent pieces needed
+by the profile. Only verified pieces count, including valid cache hits and the
+short final piece. Retries do not add duplicate bytes. Profile JSON, metadata,
+other runtime assets and unrelated disk pieces are excluded. The total stays
+fixed through retries; fallback never fabricates completion. The counter remains
+through decoding, restoration and prefetch, then gives way to `Almost there…`.
+
 A publication without a state, an unverifiable publication or an incompatible
 runtime produces an error and Retry. There is no cold-boot fallback. Retry after
 a disk-read failure resumes the same VM and retains its writes. Reload opens the
 latest accepted signed publication in a new session.
 
-The site opens with `prefetchScope:"none"`, restores and displays the saved state,
-then loads only its matching optional profile after the first visible frame.
-Profile lookup and validation never delay presentation. Cancellation stops the
-scheduled lookup, and late failures from an old attempt cannot affect a new one. Exit The Matrix preserves that selection and the
-same session; unused ranges load on demand. An absent, invalid or unavailable
-optional profile leaves the restored machine on demand. WebTorrent caches verified
-ciphertext pieces in IndexedDB; profile ranges may include the surrounding 256 KiB
-torrent pieces. This is distinct from downloading the whole disk in the background.
+The site opens with `prefetchScope:"none"` and opts into profile prefetch while
+preparing the published state. State and profile JSON download concurrently;
+profile pieces start as soon as the JSON is validated. The state SHA256 must
+match the profile before the prefetch can succeed. The VM remains stopped and
+hidden until restoration and prefetch complete, or profile fallback is selected.
+Prefetch selects at most eight unique missing 256 KiB pieces across ranges and
+refills on any completed piece. This is a selection window, not a global network
+limit; the existing state queue and connection limits are unchanged.
+
+Transient profile failures allow two additional attempts, retaining verified
+pieces. An absent, invalid or mismatched profile falls back immediately. A single
+ten-second budget starts when restoration commits and is shared by retries.
+On exhaustion the site silently opens on demand, stops only its prefetch and
+preserves the disk and restored VM. State/authentication/Worker failures still
+produce the normal error and Retry. Cancellation and late callbacks are isolated
+per attempt. Exit The Matrix preserves the session and never starts a full-disk
+download. Existing my98 clients that omit the new preparation option retain
+their previous behavior.
 
 `runtime/emulator/libv86.mjs` and `runtime/emulator/v86.wasm` are the exact emulator
 bytes required by the published state. `lock.json` records the current source
