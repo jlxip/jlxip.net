@@ -112,11 +112,18 @@ SITE_ROOT=build/ci-runs/run-XXX/site EVIDENCE=build/future-ubuntu node my98/test
 After Exit The Matrix, a stationary one-finger hold for 500 ms produces one
 right click immediately; releasing it produces no further click. Short taps
 remain left clicks. Movement beyond 8 CSS pixels or a second finger cancels the
-gesture; native pinch zoom remains available. Two short taps within 500 ms and
-8 CSS pixels use the first tap's position, making double taps tolerant of finger
+pending click. After native pinch zoom, dragging one finger pans the enlarged
+view horizontally or vertically, both before and after Exit, without moving the
+guest pointer or sending clicks or wheel events. The site moves the canvas in
+both axes on every sample, so the same drag can turn freely without browser axis
+locking. Movement stops on release and is bounded to keep the content reachable;
+pinch zoom stays native. It does not scroll inside Windows. An already-issued
+long-press right click is not undone by a subsequent drag. Two short taps within
+500 ms and 8 CSS pixels use the first tap's position, making double taps tolerant of finger
 jitter on a scaled desktop. Both clicks are sent immediately on release; Windows
 retains its own double-click timing rules. A long/cancelled gesture, session or
-frame change clears the remembered tap. Mouse input and touch before Exit are unchanged.
+frame change clears the remembered tap. Mouse input is unchanged; before Exit,
+stationary touches retain their existing deferred left click.
 The Node input tests use controlled time and the real direct-pointer module with
 an in-memory event/capture harness. Physical Safari/iPhone and Chrome/Android
 checks are still needed to verify native pinch zoom, callout suppression and the

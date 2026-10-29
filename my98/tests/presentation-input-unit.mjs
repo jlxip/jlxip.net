@@ -9,7 +9,7 @@ import {setupDirectPointer} from '../my98/src/browser/direct-pointer.js';
 // establish native pinch/callout behaviour on a physical phone.
 function fixture(t) {
     let now=0, nextTimer=0, session={}, running=true, exited=true;
-    const timers=new Map(), active=new Map(), pending=new Set(), captured=new Set(), events=[];
+    const timers=new Map(), active=new Map(), pending=new Set(), captured=new Set(), events=[], pans=[];
     const saved=new Map();
     const replace=(name,value)=>{
         saved.set(name,Object.getOwnPropertyDescriptor(globalThis,name));
@@ -54,7 +54,8 @@ function fixture(t) {
     // Match FutureSession's native zoom bypass, installed before either policy.
     for(const type of ['touchstart','touchmove','touchend','touchcancel'])
         display.addEventListener(type,event=>event.stopImmediatePropagation(),true);
-    const guard=guardPresentationInput({display,unlocked:()=>exited,getSession:()=>running?session:null});
+    const guard=guardPresentationInput({display,unlocked:()=>exited,getSession:()=>running?session:null,
+        panBy:(dx,dy)=>pans.push([dx,dy])});
     const vm={bus:{send:(type,value)=>events.push({type,value})},is_running:()=>running,mouse_set_enabled:()=>{}};
     const pointer=setupDirectPointer({display,getSurface:()=>display,getMachine:()=>vm});
     pointer.activate();events.length=0;
@@ -86,7 +87,7 @@ function fixture(t) {
         }
         now=end;
     }
-    return {emit,advance,events,display,doc,win,guard,pointer,timers,pending,
+    return {emit,advance,events,pans,display,doc,win,guard,pointer,timers,pending,
         buttons:()=>events.filter(e=>e.type==='mouse-click').map(e=>e.value),
         positions:()=>events.filter(e=>e.type==='mouse-absolute').map(e=>e.value),
         exit:value=>exited=value,stop:()=>running=false,replace:()=>session={},
@@ -153,6 +154,35 @@ test('a nearby mouse click retains its own coordinates',t=>{
 test('movement beyond 8 CSS pixels cancels permanently, including a return',t=>{
     const f=fixture(t);f.emit('pointerdown');f.emit('pointermove',{clientX:159});
     f.emit('pointermove');f.advance(1000);f.emit('pointerup');assert.deepEqual(f.buttons(),[]);
+    assert.deepEqual(f.events,[],'dragging never moves the guest pointer or sends wheel events');
+});
+for(const exited of [false,true])for(const [dx,dy] of [[30,0],[0,30],[30,30],[200,200]])
+    test(`touch drag ${dx},${dy} ${exited?'after':'before'} Exit never reaches the guest`,t=>{
+        const f=fixture(t);f.exit(exited);f.emit('pointerdown');
+        f.emit('pointermove',{clientX:150+dx,clientY:100+dy});
+        f.emit('pointerup',{clientX:150+dx,clientY:100+dy});f.advance(1000);
+        assert.deepEqual(f.events,[]);
+        assert.equal(f.timers.size,0);assert.equal(f.pending.size,0);
+    });
+test('dragging after an executed right click sends no additional guest input',t=>{
+    const f=fixture(t);f.emit('pointerdown');f.advance(500);
+    assert.deepEqual(f.buttons(),right);f.events.length=0;
+    f.emit('pointermove',{clientX:190,clientY:140});f.emit('pointerup',{clientX:190,clientY:140});
+    f.advance(1000);assert.deepEqual(f.events,[]);
+});
+for(const exited of [false,true])test(`drag turns freely and reverses in one contact ${exited?'after':'before'} Exit`,t=>{
+    const f=fixture(t);f.exit(exited);f.emit('pointerdown');
+    f.emit('pointermove',{clientX:155});assert.deepEqual(f.pans,[],'small jitter is still a tap');
+    f.emit('pointermove',{clientX:180});f.emit('pointermove',{clientX:180,clientY:130});
+    f.emit('pointermove',{clientY:130});f.emit('pointermove');f.emit('pointerup');
+    assert.deepEqual(f.pans,[[30,0],[0,30],[-30,0],[0,-30]]);
+    assert.deepEqual(f.events,[]);assert.equal(f.timers.size,0);
+});
+test('cancelled or stale drags stop panning immediately',t=>{
+    const f=fixture(t);f.emit('pointerdown');f.emit('pointermove',{clientX:180});
+    f.emit('pointercancel');f.emit('pointermove',{clientX:190});f.emit('pointerup');
+    f.emit('pointerdown');f.replace();f.emit('pointermove',{clientY:140});f.emit('pointerup');
+    assert.deepEqual(f.pans,[[30,0]]);assert.deepEqual(f.events,[]);
 });
 test('release outside the surface cancels; clipped/non-hit areas never start',t=>{
     const f=fixture(t);f.emit('pointerdown',{clientX:298});f.emit('pointerup',{clientX:302});

@@ -46,7 +46,7 @@ export class FutureSession {
         this.retry.onclick=()=>this.adapter?.failed ? this.retryDisk() : this.load();
         this.resize=()=>this.fit();window.addEventListener('resize',this.resize);
         this.visualResize=()=>{
-            if(this.fittedZoom && window.visualViewport?.scale<=1.01)this.fit();
+            if((this.fittedZoom||this.panned) && window.visualViewport?.scale<=1.01)this.fit();
         };
         window.visualViewport?.addEventListener('resize',this.visualResize);
         this.gesture=()=>{this.machine?.speaker_adapter?.resume();};
@@ -59,6 +59,7 @@ export class FutureSession {
         this.allowWheelZoom=event=>{if(event.ctrlKey)event.stopImmediatePropagation();};
         this.display.addEventListener('wheel',this.allowWheelZoom,{capture:true,passive:true});
         this.input=guardPresentationInput({display:this.display,unlocked:()=>!!this.bridge?.exited,
+            panBy:(dx,dy)=>this.panBy(dx,dy),
             getSession:()=>this.pointer?.enabled && this.machine?.is_running() &&
                 !this.working && !this.destroyed && !this.display.hidden ? this.machine : null});
         this.leave=()=>{void this.destroy();};window.addEventListener('pagehide',this.leave);
@@ -71,6 +72,22 @@ export class FutureSession {
     showError(error,phase=this.phase) {
         console.error('Could not complete the request',error);
         this.status(errorMessage(error,phase),true);
+    }
+    panBy(dx,dy) {
+        const visual=window.visualViewport,canvas=this.display.querySelector('canvas');
+        if(!this.frame||!canvas||!visual||visual.scale<=1.01)return;
+        const [width,height,left,top,edgeCrop]=this.frame;
+        const crop=height*edgeCrop/canvas.height;
+        // Keep the content reachable. A smaller surface can move within the
+        // viewport; a larger one can move until either edge meets the viewport.
+        const bound=(position,size,start,length)=>{
+            const end=start+length-size;
+            return Math.max(Math.min(start,end),Math.min(Math.max(start,end),position));
+        };
+        const nextLeft=bound(left+dx,width,visual.offsetLeft,visual.width);
+        const nextTop=bound(top+crop+dy,height-2*crop,visual.offsetTop,visual.height)-crop;
+        this.frame=[width,height,nextLeft,nextTop,edgeCrop];this.panned=true;
+        this.display.style.left=nextLeft+'px';this.display.style.top=nextTop+'px';
     }
     fit() {
         const canvas=this.display.querySelector('canvas');if(!canvas||!this.machine)return;
@@ -97,6 +114,7 @@ export class FutureSession {
             this.input.reset();this.pointer?.release();
         }
         this.frame=frame;
+        this.panned=false;
         this.fittedZoom=zoomed;
         this.display.style.width=width+'px';this.display.style.height=height+'px';
         this.display.style.left=left+'px';this.display.style.top=top+'px';

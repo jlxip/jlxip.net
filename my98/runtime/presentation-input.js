@@ -1,5 +1,5 @@
 // Site-only input policy. Direct pointer continues to own guest coordinates.
-export function guardPresentationInput({display, unlocked, getSession=()=>true}) {
+export function guardPresentationInput({display, unlocked, getSession=()=>true, panBy=()=>{}}) {
     let gesture=null, lastTap=null, replaying=false;
     const touches=new Set(), listeners=[];
     const listen=(target,type,handler)=>{
@@ -40,8 +40,8 @@ export function guardPresentationInput({display, unlocked, getSession=()=>true})
         replayClick(previous,button);
     }
     const lockedMouse=event=>!replaying&&!unlocked()&&event.pointerType==='mouse';
-    const siteTouch=event=>!replaying&&event.pointerType==='touch'&&(unlocked()||gesture?.touch);
-    const validTouch=previous=>previous && previous.state==='pending' && unlocked() &&
+    const siteTouch=event=>!replaying&&event.pointerType==='touch';
+    const validTouch=previous=>previous && previous.state==='pending' && previous.allowRight && unlocked() &&
         previous.session===getSession() && touches.size===1 && inside(previous.lastX,previous.lastY);
     function rightClick(previous) {
         if(gesture!==previous)return;
@@ -70,9 +70,9 @@ export function guardPresentationInput({display, unlocked, getSession=()=>true})
                 lastTap=null;return;
             }
             const previous=gesture={id:event.pointerId,touch:true,x:event.clientX,y:event.clientY,
-                lastX:event.clientX,lastY:event.clientY,state:'pending',session,started:performance.now()};
+                lastX:event.clientX,lastY:event.clientY,state:'pending',session,allowRight:unlocked(),started:performance.now()};
             display.setPointerCapture(previous.id);
-            previous.timer=setTimeout(()=>rightClick(previous),500);
+            if(previous.allowRight)previous.timer=setTimeout(()=>rightClick(previous),500);
             return;
         }
         if(!lockedMouse(event))return;
@@ -85,11 +85,21 @@ export function guardPresentationInput({display, unlocked, getSession=()=>true})
         if(siteTouch(event)) {
             consume(event);
             if(gesture?.touch&&gesture.id===event.pointerId) {
+                const previous=gesture, dx=event.clientX-previous.lastX,dy=event.clientY-previous.lastY;
                 gesture.lastX=event.clientX;gesture.lastY=event.clientY;
-                if(Math.hypot(event.clientX-gesture.x,event.clientY-gesture.y)>8||!validTouch(gesture)) {
+                if(previous.session!==getSession()||touches.size!==1||previous.allowRight!==unlocked()) {
                     clearTimeout(gesture.timer);
-                    lastTap=null;
-                    if(gesture.state==='pending')gesture.state='cancelled';
+                    lastTap=null;previous.state='cancelled';return;
+                }
+                if(previous.state!=='cancelled'&&(previous.state==='panning'||
+                    Math.hypot(event.clientX-previous.x,event.clientY-previous.y)>8)) {
+                    clearTimeout(previous.timer);lastTap=null;
+                    // Both axes follow every sample, including direction changes
+                    // within one contact. No mouse events are replayed for a drag.
+                    const starting=previous.state!=='panning';previous.state='panning';
+                    panBy(starting?event.clientX-previous.x:dx,starting?event.clientY-previous.y:dy);
+                } else if(!inside(event.clientX,event.clientY)) {
+                    clearTimeout(previous.timer);lastTap=null;previous.state='cancelled';
                 }
             }
             return;
@@ -107,12 +117,15 @@ export function guardPresentationInput({display, unlocked, getSession=()=>true})
             previous.lastX=event.clientX;previous.lastY=event.clientY;
             // The document listener has already removed this finger. No other
             // contacts may remain, and an overdue timer still means a right click.
-            const click=previous.state==='pending'&&unlocked()&&previous.session===getSession()&&
+            const click=previous.state==='pending'&&previous.allowRight===unlocked()&&previous.session===getSession()&&
                 touches.size===0&&inside(event.clientX,event.clientY)&&
                 Math.hypot(event.clientX-previous.x,event.clientY-previous.y)<=8;
-            const button=performance.now()-previous.started>=500?2:0;
+            const button=previous.allowRight&&performance.now()-previous.started>=500?2:0;
             reset({keepTap:click&&button===0});
-            if(click)replayTap(previous,button);
+            if(click) {
+                if(previous.allowRight)replayTap(previous,button);
+                else replayClick(previous,button);
+            }
             return;
         }
         if(!lockedMouse(event))return;

@@ -83,9 +83,11 @@ export async function checkStartupPrefetch({server,torrent,state,diskHash,profil
        await release();
        await page.evaluate(()=>{session=new module.FutureSession();session.ready=session.load();});
        await page.waitForFunction(()=>session.working&&session.disk);
-       const before=await page.locator('#status').textContent();
-       await page.evaluate(()=>previousProgress({phase:'download-startup',completed:1,total:2}));
-       assert.equal(await page.locator('#status').textContent(),before);
+       assert(await page.evaluate(()=>{
+        const status=document.querySelector('#status'),before=status.textContent;
+        previousProgress({phase:'download-startup',completed:1,total:2});
+        return status.textContent===before;
+       }),'Old callback changed a new attempt');
       } else await release();
       await finish('complete');
      } else if(mode==='transient-profile'||mode==='failed-profile') {

@@ -101,7 +101,8 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
 
    console.log('Download progress',engine,'warm');const before=torrent.requests.length;
    await start();await finish();
-   assert.equal(torrent.requests.slice(before).filter(r=>r.hash===state||r.hash===diskHash).length,0,'Warm state and profile must use verified cache');
+   assert.deepEqual(torrent.requests.slice(before).filter(r=>r.hash===state||r.hash===diskHash),[],
+    'Warm state and profile must use verified cache');
    results.push({engine,downloadProgress:'warm',passed:true});
    await page.evaluate(()=>session.destroy());await editCache('partial');await page.close();
 
@@ -152,9 +153,13 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
     session=new module.FutureSession();session.ready=session.load();
    });
    await page.waitForFunction(()=>session.working&&session.disk);
-   const message=await page.locator('#status').textContent();
-   await page.evaluate(()=>previousProgress({phase:'download-startup',completed:2,total:2}));
-   assert.equal(await page.locator('#status').textContent(),message,'Old callback changed a new attempt');
+   // Compare in the same task: genuine progress from the new attempt may arrive
+   // between separate browser round trips and legitimately change the text.
+   assert(await page.evaluate(()=>{
+    const status=document.querySelector('#status'),message=status.textContent;
+    previousProgress({phase:'download-startup',completed:2,total:2});
+    return status.textContent===message;
+   }),'Old callback changed a new attempt');
    await page.waitForFunction(()=>!session.working,undefined,{timeout:60000});
    await page.evaluate(()=>previousProgress?.({phase:'download-startup',completed:2,total:2}));
    assert.equal(await page.locator('#display').isVisible(),true);assert.equal(await page.locator('#loading').isVisible(),false);
