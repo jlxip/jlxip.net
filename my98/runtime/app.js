@@ -1,5 +1,6 @@
 import {attachMatrixBridge} from '../scripts/exit-matrix/bridge.js';
 import {guardPresentationInput} from './presentation-input.js';
+import {during,errorContext,errorMessage} from './errors.js';
 
 // The packager gives the complete runtime graph one content-addressed directory.
 const runtimeRoot = typeof __MY98_RUNTIME_ROOT__ === 'string' ? __MY98_RUNTIME_ROOT__ : '../my98-runtime/';
@@ -12,30 +13,28 @@ const PRESENTATION_EDGE_CROP = 8;
 const abortError = () => Object.assign(new Error('Loading cancelled'), {code:'CANCELLED'});
 const check = signal => {if(signal.aborted) throw abortError();};
 async function readAsset(path, signal) {
-    const response = await fetch(runtimeURL(path), {signal});
-    if(!response.ok) throw new Error('The Windows runtime could not be loaded.');
-    return response.arrayBuffer();
+    return during('Loading runtime',async()=>{
+        const response = await fetch(runtimeURL(path), {signal});
+        if(!response.ok) throw Object.assign(new Error(`HTTP ${response.status} ${response.statusText}`.trim()),{code:'HTTP_'+response.status});
+        return response.arrayBuffer();
+    },path);
 }
+const importRuntime=path=>during('Loading runtime',()=>import(runtimeURL(path)),path);
 export async function loadRuntime(signal) {
     const [engine, disk, state, pointer, ...bytes] = await Promise.all([
-        import(runtimeURL('build/libv86.mjs')),
-        import(runtimeURL('build/disk/web/client.js')),
-        import(runtimeURL('src/browser/machine-state.js')),
-        import(runtimeURL('src/browser/direct-pointer.js')),
+        importRuntime('build/libv86.mjs'),
+        importRuntime('build/disk/web/client.js'),
+        importRuntime('src/browser/machine-state.js'),
+        importRuntime('src/browser/direct-pointer.js'),
         ...['build/libv86.mjs','build/v86.wasm','bios/seabios.bin','bios/bochs-vgabios.bin'].map(p=>readAsset(p,signal)),
     ]);
     check(signal);
     const [hashes,module]=await Promise.all([
-        Promise.all(bytes.map(async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b)),x=>x.toString(16).padStart(2,'0')).join(''))),
-        WebAssembly.compile(bytes[1]),
+        during('Verifying runtime',()=>Promise.all(bytes.map(async b=>Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',b)),x=>x.toString(16).padStart(2,'0')).join('')))),
+        during('Compiling runtime',()=>WebAssembly.compile(bytes[1]),'build/v86.wasm'),
     ]);check(signal);
     return {...engine,...disk,...state,...pointer,module,bios:bytes[2],vgaBios:bytes[3],compatibility:'my98-state-adapter-1:'+hashes.join(':')};
 }
-function errorMessage(error) {
-    console.error('Could not complete the request',error);
-    return 'Something went wrong. Please try again.';
-}
-
 export class FutureSession {
     constructor() {
         this.prefetchPolicy={scope:'profile',maxAttempts:3,postRestoreBudgetMs:10000,windowPieces:8};
@@ -68,6 +67,10 @@ export class FutureSession {
         this.message.textContent=text;this.panel.hidden=!text;
         this.message.classList.toggle('error',error);
         this.retry.hidden=!error;this.retry.disabled=this.working;
+    }
+    showError(error,phase=this.phase) {
+        console.error('Could not complete the request',error);
+        this.status(errorMessage(error,phase),true);
     }
     fit() {
         const canvas=this.display.querySelector('canvas');if(!canvas||!this.machine)return;
@@ -133,7 +136,7 @@ export class FutureSession {
     }
     prepareRuntime() {
         if(!this.runtimePromise) {
-            this.runtimePromise=loadRuntime(this.runtimeAbort.signal).then(runtime=>this.runtime=runtime).catch(error=>{
+            this.runtimePromise=during('Loading runtime',()=>loadRuntime(this.runtimeAbort.signal)).then(runtime=>this.runtime=runtime).catch(error=>{
                 this.runtimePromise=undefined;throw error;
             });
         }
@@ -161,6 +164,7 @@ export class FutureSession {
         if(this.working || this.destroyed)return;
         this.working=true;this.abort=new AbortController();const signal=this.abort.signal;
         this.timings={started:performance.now(),attempts:[]};
+        this.phase='Preparing page';
         this.status('One moment…');
         try {
             this.cancelAttempt();await this.attemptQueue;await this.disposeSession();check(signal);
@@ -171,29 +175,36 @@ export class FutureSession {
             });
             // Config/resolution can fail before the runtime is awaited.
             runtime.catch(()=>{});
-            const response=await fetch(new URL('./config.json',import.meta.url),{signal,cache:'no-store'});
-            if(!response.ok)throw new Error('The site configuration could not be loaded.');
-            const config=await response.json();check(signal);
+            this.phase='Loading configuration';
+            const config=await during(this.phase,async()=>{
+                const response=await fetch(new URL('./config.json',import.meta.url),{signal,cache:'no-store'});
+                if(!response.ok)throw Object.assign(new Error(`HTTP ${response.status} ${response.statusText}`.trim()),{code:'HTTP_'+response.status});
+                return response.json();
+            },'build/future/config.json');check(signal);
             if(typeof config.readKey==='string' && config.readKey.startsWith('my98-ro-v1.'))throw new Error('This read key is outdated. Export a new read-only key.');
             const attempt={controller:new AbortController(),metrics:{selected:performance.now()-this.timings.started,phases:{}}};
             this.attempt=attempt;this.timings.attempts.push(attempt.metrics);
             this.timings.resolutionStart=performance.now()-this.timings.started;
             this.attemptQueue=this.attemptQueue.then(async()=>{
+                this.phase='Loading runtime';
                 await runtime;check(signal);check(attempt.controller.signal);
                 await this.restorePublication(config,attempt);
             });
             await this.attemptQueue;check(signal);
         } catch(error) {
-            this.cancelAttempt();await this.attemptQueue.catch(()=>{});await this.disposeSession();
+            const failure=errorContext(error,this.phase);
+            try{this.cancelAttempt();await this.attemptQueue.catch(()=>{});await this.disposeSession();}
+            catch(cleanupError){console.error('Session cleanup failed',cleanupError);}
             this.attemptQueue=Promise.resolve();
-            if(!signal.aborted) {this.status(errorMessage(error),true);}
+            if(!signal.aborted)this.showError(failure);
         } finally {this.working=false;this.retry.disabled=false;}
     }
     async restorePublication(config,attempt) {
         const signal=attempt.controller.signal;let restored;
         attempt.downloading=true;attempt.downloaded=0;
-        this.status('Downloading...');
+        this.status('Getting ready...');
         try {
+            this.phase='Starting disk worker';
             this.disk=await this.runtime.Slop86Disk.create({onProgress:p=>{
                 if(signal.aborted)return;
                 const phase=attempt.metrics.phases[p.phase]||={first:performance.now()-this.timings.started};
@@ -206,6 +217,7 @@ export class FutureSession {
                 }
             }});check(signal);
             attempt.disk=this.disk;check(signal);
+            this.phase='Opening publication';
             const description=await this.disk.openRemoteReadOnly({readKey:config.readKey,sources:config.sources,prefetchScope:"none"});check(signal);
             this.publication={publicKey:description.remote.publicKey,infoHash:description.remote.publicationInfoHash,sequence:description.remote.sequence};
             this.timings.resolutionFinal=performance.now()-this.timings.started;
@@ -213,23 +225,26 @@ export class FutureSession {
             const container=document.createElement('div');container.innerHTML='<div></div><canvas></canvas>';
             attempt.metrics.opened=performance.now()-this.timings.started;
             attempt.metrics.prefetchStarted=performance.now()-this.timings.started;
+            this.phase='Loading saved state';
             restored=await this.runtime.restoreMachineState({disk:this.disk,input:{publication:true,prefetch:{...this.prefetchPolicy}},compatibility:this.runtime.compatibility,signal,
-                createMachine:(adapter,machineConfig)=>{attempt.metrics.prepared=performance.now()-this.timings.started;return this.createMachine(adapter,machineConfig,container,signal);},
+                createMachine:(adapter,machineConfig)=>{this.phase='Restoring Windows';attempt.metrics.prepared=performance.now()-this.timings.started;return during(this.phase,()=>this.createMachine(adapter,machineConfig,container,signal));},
                 onDiskError:async error=>{
                     if(signal.aborted)return;
                     this.input.reset();
                     if(this.machine){this.pointer?.release();await this.machine.stop();}
-                    if(!signal.aborted)this.status(errorMessage(error),true);
+                    if(!signal.aborted)this.showError(error,'Reading disk');
                 },
             });
             check(signal);
             attempt.metrics.restored=performance.now()-this.timings.started;
             this.machine=restored.machine;this.adapter=restored.adapter;
+            this.phase='Loading startup disk blocks';
             attempt.prefetchTask=this.disk.waitLoadPrefetch(restored.prefetchId);
             const prefetch=await attempt.prefetchTask;check(signal);
             attempt.metrics.prefetchFinished=performance.now()-this.timings.started;
             attempt.metrics.prefetch=prefetch;
             attempt.downloading=false;this.status('Almost there…');
+            this.phase='Starting Windows';
             this.display.replaceChildren(...container.childNodes);
             this.display.querySelector('canvas').id='vga';
             this.pointer=this.runtime.setupDirectPointer({display:this.display,getSurface:()=>this.display.querySelector('canvas'),getMachine:()=>this.machine,focus:()=>this.display.focus({preventScroll:true})});
@@ -237,7 +252,7 @@ export class FutureSession {
                 onExit:()=>{
                     if(signal.aborted)return;
                     this.fit();this.display.focus({preventScroll:true});
-                },onError:error=>{if(!signal.aborted)this.status(errorMessage(error),true);}});
+                },onError:error=>{if(!signal.aborted)this.showError(error,'Exit The Matrix');}});
             this.machine.add_listener('screen-set-size',this.resize);
             this.observer=new MutationObserver(this.resize);this.observer.observe(this.display.querySelector('canvas'),{attributes:true,attributeFilter:['width','height']});
             check(signal);
@@ -247,17 +262,21 @@ export class FutureSession {
             if(this.adapter.failed)throw this.adapter.error;
             this.display.hidden=false;this.fit();this.status('');
             attempt.metrics.visible=performance.now()-this.timings.started;
+            this.phase='Running Windows';
         } catch(error) {
             attempt.downloading=false;
             if(restored && this.machine!==restored.machine) {await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
-            await this.disposeSession();throw error;
+            const failure=errorContext(error,this.phase);
+            try{await this.disposeSession();}catch(cleanupError){console.error('Session cleanup failed',cleanupError);}
+            throw failure;
         }
     }
     async retryDisk() {
         if(this.working||this.destroyed)return;
         this.working=true;this.status('One moment…');
-        try{await this.adapter.retry();if(this.destroyed)return;this.machine.run();this.status('');}
-        catch(error){if(!this.destroyed)this.status(errorMessage(error),true);}
+        this.phase='Retrying disk read';
+        try{await this.adapter.retry();if(this.destroyed)return;this.machine.run();this.phase='Running Windows';this.status('');}
+        catch(error){if(!this.destroyed)this.showError(error);}
         finally{this.working=false;this.retry.disabled=false;}
     }
     async destroy() {

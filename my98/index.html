@@ -10,7 +10,7 @@
         [hidden] { display: none !important; }
         #display { position: fixed; top: 0; left: 0; outline: none; touch-action: pinch-zoom; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
         #display canvas { display: block; width: 100% !important; height: 100% !important; }
-        #loading { position: fixed; z-index: 1; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100% - 48px)); text-align: center; padding: 20px; background: #000; }
+        #loading { position: fixed; z-index: 1; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(440px, calc(100% - 48px)); max-height: calc(100vh - 48px); max-height: calc(100dvh - 48px); box-sizing: border-box; overflow: auto; text-align: center; padding: 20px; background: #000; }
         #status { margin: 0 0 16px; overflow-wrap: anywhere; white-space: pre-line; }
         #status.error { color: #ffb7b0; }
         #retry { min-height: 44px; padding: 8px 24px; border: 1px solid #414751; border-radius: 4px; background: #24282f; color: inherit; font: inherit; cursor: pointer; }
@@ -23,9 +23,12 @@
     <div id="loading"><p id="status" role="status" aria-live="polite">One moment…</p><button id="retry" hidden>Try again</button></div>
     <noscript>Please enable JavaScript to continue.</noscript>
     <script type="module">
-        import('./build/future/app.js').then(module => module.start()).catch(() => {
+        import('./build/future/app.js').then(module => module.start()).catch(error => {
             const message = document.getElementById('status');
-            message.textContent = 'Something went wrong. Please try again.';
+            console.error('Loading application failed', error);
+            message.textContent = 'Loading application failed.\n' +
+                (error?.name ? error.name + ': ' : '') + (error?.message || String(error)) +
+                '\nResource: build/future/app.js';
             message.classList.add('error');
             const retry = document.getElementById('retry');
             retry.hidden = false;

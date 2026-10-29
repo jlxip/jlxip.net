@@ -25,6 +25,15 @@ and interactive commands.
 `index.html` resolves the latest signed BEP46 publication through my98's WebTorrent
 read-only API, restores its authenticated state, then starts the existing presentation.
 For a local preview run `make run` and open `http://127.0.0.1:8687/`.
+For a phone on the same LAN, run `make lan`: it performs the same build and serves
+HTTPS on `0.0.0.0:8000`, printing the local URLs. Open `https://<computer-IP>:8000/`.
+Python 3 and OpenSSL generate a self-signed certificate with local IP subject
+alternative names in `build/lan/`, reused until addresses change or expiry nears.
+The private key stays outside the served directory. On iPhone, install
+`build/lan/cert.pem` and enable full trust in Settings → General → About →
+Certificate Trust Settings if needed. Ctrl+C stops the preview. Generated TLS
+files remain in the ignored build directory and are never part of the site.
+See Apple's [certificate trust instructions](https://support.apple.com/en-us/102390).
 The built HTML selects a content-hashed app URL. All runtime imports, including
 client, Worker, bindings and WASM, share a content-addressed directory so a
 cached V1 client cannot be paired with a V2 Worker on a fresh load.
@@ -33,8 +42,8 @@ existing public `my98-ro-v2` read key and optional `sources` (APIs, webseeds,
 trackers); its embedded public key identifies the publication. No password or
 signing key is included. IPNS names and CID arguments are no longer used.
 
-The loading message shows `Downloading...`, then `received / total MiB` on the
-line below once both download targets are known (one decimal, 1 MiB = 1,048,576
+The loading message shows `Getting ready...` until both download targets are
+known, then `Downloading...` with `received / total MiB` on the line below (one decimal, 1 MiB = 1,048,576
 bytes). It combines encrypted state bytes with the unique torrent pieces needed
 by the profile. Only verified pieces count, including valid cache hits and the
 short final piece. Retries do not add duplicate bytes. Profile JSON, metadata,
@@ -46,6 +55,13 @@ A publication without a state, an unverifiable publication or an incompatible
 runtime produces an error and Retry. There is no cold-boot fallback. Retry after
 a disk-read failure resumes the same VM and retains its writes. Reload opens the
 latest accepted signed publication in a new session.
+
+The error panel shows the failing phase, the original error code or name and
+message, underlying causes and the resource when available. Runtime HTTP failures
+include their status; application-import failures use the same panel even when
+the application cannot start. Native Worker errors retain the browser message
+and source location. Messages remain literal text, and long errors scroll within
+the viewport. Try again keeps the existing reload or disk-retry behavior.
 
 The site opens with `prefetchScope:"none"` and opts into profile prefetch while
 preparing the published state. State and profile JSON download concurrently;

@@ -50,6 +50,8 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
    assert.equal(await page.locator('#display').isVisible(),true,await page.locator('#status').textContent());
    const data=await page.evaluate(()=>({events:progressEvents.filter(p=>p.phase==='download-startup'),messages}));
    assert(data.events.length,'Missing combined startup progress');
+   assert(data.messages.some(m=>m.text==='Getting ready...'),'Missing preparation phase');
+   assert(!data.messages.some(m=>m.text==='Downloading...'),'Download label requires a counter');
    let previous=0;
    for(const event of data.events) {
     assert.equal(event.total,total);assert(event.completed>=previous&&event.completed<=total);
@@ -125,7 +127,7 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
     const beforeDisk=torrent.requests.length;await start();await finish();
     const requested=torrent.requests.slice(beforeDisk).filter(r=>r.hash===diskHash);
     assert(requested.some(r=>r.first===target*piece),'Missing/corrupt profile piece was not downloaded');
-    assert(requested.every(r=>r.first===target*piece),'Verified profile neighbours were downloaded again');
+    assert(requested.every(r=>r.first===target*piece),'Verified profile neighbours were downloaded again: '+JSON.stringify({mode,target,requested}));
     results.push({engine,downloadProgress:'profile-'+mode,passed:true});await close();
    }
 
@@ -136,7 +138,7 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
    await page.waitForFunction(()=>!session.working,undefined,{timeout:60000});
    assert.equal(await page.locator('#retry').isVisible(),true);
    await page.evaluate(()=>emitProgress?.({phase:'download-startup',completed:1,total:2}));
-   assert.equal(await page.locator('#status').textContent(),'Something went wrong. Please try again.');
+   assert.match(await page.locator('#status').textContent(),/failed\.\nError: Fixture Worker failure/);
    await page.evaluate(()=>{progressEvents=[];messages=[];});await page.locator('#retry').click();await finish();
    results.push({engine,downloadProgress:'error-retry',passed:true});
    await page.evaluate(()=>session.destroy());await editCache('partial');await page.close();
