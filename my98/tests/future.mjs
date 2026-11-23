@@ -8,6 +8,7 @@ import {serveFuture} from './future-server.mjs';
 import {TorrentFixture} from './torrent-fixture.mjs';
 import {checkDownloadProgress} from './download-progress.mjs';
 import {checkStartupPrefetch} from './startup-prefetch.mjs';
+import {benchmarkStartup} from './startup-benchmark.mjs';
 const root=process.cwd(),output=path.resolve('build/future-tests');await mkdir(output,{recursive:true});
 process.chdir('my98/my98');const diskFile=await diskFixture({sizeBytes:16*1024*1024});process.chdir(root);
 const torrent=new TorrentFixture(),diskHash=await torrent.add(diskFile.file,'disk.my98');
@@ -22,6 +23,7 @@ server=await serveFuture(process.env.SITE_ROOT||root,true,{
   return torrent.handle(req,res,url);
  }
 });
+await torrent.start(server.url);
 const results=[];
 try {
  const browser=await chromium.launch();
@@ -34,7 +36,7 @@ try {
    await disk.unlock('disk fixtures','public compatibility password','main');const description=await disk.open(document.querySelector('#fixture').files[0]);
    const readKey=await disk.exportReadOnlyKey(),session=new module.FutureSession();session.runtime=r;
    const adapter=new r.DiskBuffer(disk,description.size),container=document.createElement('div');container.innerHTML='<div></div><canvas></canvas>';
-   const config={...r.DEFAULT_CONFIG,memory_size:16*1048576};
+   const config={...r.DEFAULT_CONFIG,memory_size:512*1048576};
    const vm=await session.createMachine(adapter,config,container,new AbortController().signal);
    vm.run();
    // Wait for the fixture's CLI/HLT boot sector; BIOS can still clear RAM earlier.
@@ -65,6 +67,7 @@ try {
   results.push({fixture:{disk:diskHash,state,profile:profileHash,descriptor}});
   await checkDownloadProgress({server,torrent,state,stateBytes,diskHash,profile:profile[0],output,results});
   await checkStartupPrefetch({server,torrent,state,diskHash,profileHash,profile:profile[0],results});
+  await benchmarkStartup({server,results});
   // Reuse the immutable authenticated fixture in both engines and viewport modes.
   for(const [engine,type] of Object.entries({chromium,webkit}))for(const mobile of [false,true]){
    console.log('Fixture',engine,mobile);const b=await type.launch();
@@ -76,6 +79,7 @@ try {
     assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8[0x70000]),41);
     assert.equal(await page.evaluate(async()=>(await session.disk.read(10000,1))[0]),42);
     assert.equal(await page.evaluate(()=>session.publication.infoHash),descriptor);
+    assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8.length),512*1048576);
     assert.equal(await page.evaluate(()=>session.machine.keyboard_adapter.emu_enabled),false);
     assert.equal(await page.evaluate(()=>session.attempt.metrics.prefetch.outcome),'complete');
     assert(await page.evaluate(()=>session.attempt.metrics.prefetchFinished<=session.attempt.metrics.visible));
@@ -133,4 +137,4 @@ try {
   }
  }finally{await browser.close();}
  await writeFile(path.join(output,'results.json'),JSON.stringify(results,null,2)+'\n');console.log('WebTorrent signed fixtures: PASS',results.length-1,'cases');
-}finally{await server.close();await diskFile.close();}
+}finally{await torrent.close();await server.close();await diskFile.close();}

@@ -5,40 +5,10 @@ import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 import {serveFuture} from './future-server.mjs';
 const root=path.resolve(process.env.SITE_ROOT||'.');
 const output=path.resolve(process.env.EVIDENCE||'build/future-real');await mkdir(output,{recursive:true});
-// MIGRATION_DIR serves the recovered immutable ciphertext locally. The test
-// overrides only the immutable descriptor target, without fabricating a signature
-// for the user's real identity. Normal runs resolve signed BEP46 from the nodes.
+// Exercise only the configured signed BEP49 publication; no legacy descriptor override.
 const publicURL=process.env.PUBLIC_URL;
-assert(!(publicURL&&process.env.MIGRATION_DIR),'PUBLIC_URL and MIGRATION_DIR are mutually exclusive');
+assert(!process.env.MIGRATION_DIR,'Use the signed FeedTorrent publication; the legacy descriptor fixture was removed');
 let server,options={};
-if(process.env.MIGRATION_DIR) {
- const {readFile}=await import('node:fs/promises');
- const {TorrentFixture}=await import('./torrent-fixture.mjs');
- const fixture=new TorrentFixture(),directory=path.resolve(process.env.MIGRATION_DIR);
- const disk=await fixture.add(path.join(directory,'disk.my98'),'disk.my98');
- const state=await fixture.add(path.join(directory,'state.my98state'),'state.my98state');
- const {existsSync}=await import('node:fs');
- const exact=existsSync(path.join(directory,'record.json'));
- const profile=await fixture.add(path.join(directory,exact?'profile.json':'load-profiles.json'),'profile.json');
- const descriptor=await fixture.add(exact?path.join(directory,'publication.json'):Buffer.from(JSON.stringify({version:1,disk,state,profile})),'publication.json');
- if(exact) {
-  const record=JSON.parse(await readFile(path.join(directory,'record.json'))),publication=JSON.parse(await readFile(path.join(directory,'publication.json')));
-  assert.equal(descriptor,record.infoHash);assert.deepEqual(publication,{version:1,disk,state,profile});
-  console.log('Exact published ciphertext hashes preserved',descriptor);
- }
- const config=JSON.parse(await readFile('my98/runtime/config.json','utf8'));
- options={config:()=>({...config,sources:fixture.sources(server.url)}),handleRequest:async(req,res,url)=>{
-  const pathname=url.pathname,base='/build/my98-runtime/build/disk/web/';
-  if(pathname===base+'client.js') {
-   res.setHeader('Content-Type','text/javascript');
-   res.end(`export * from './client-original.js';import {Slop86Disk} from './client-original.js';const open=Slop86Disk.prototype.openRemoteReadOnly;Slop86Disk.prototype.openRemoteReadOnly=function(options){return open.call(this,{...options,infoHash:'${descriptor}'});};`);return true;
-  }
-  if(pathname===base+'client-original.js') {
-   res.setHeader('Content-Type','text/javascript');res.end(await readFile(path.resolve(root,'build/my98-runtime/build/disk/web/client.js')));return true;
-  }
-  return fixture.handle(req,res,url);
- }};
-}
 server=publicURL?{url:publicURL,close:async()=>{}}:await serveFuture(root,false,options);const results=[];
 async function observeSession(context) {
  const entry=await (await fetch(server.url.replace(/\/?$/,'/'))).text();
@@ -50,6 +20,8 @@ async function observeSession(context) {
  await context.addInitScript(({appURL})=>{
   window.sessionObserver={ready:false,error:null};
   import(appURL).then(({FutureSession})=>{
+   const create=FutureSession.prototype.createMachine;
+   FutureSession.prototype.createMachine=function(adapter,config,...rest){window.restoredMemoryBytes=config.memory_size;return create.call(this,adapter,config,...rest);};
    for(const method of ['load','fit']) {
     const original=FutureSession?.prototype?.[method];
     if(typeof original!=='function')throw Error('Missing FutureSession.'+method);
@@ -123,6 +95,7 @@ try {
    assert.equal(await page.evaluate(()=>sessionObserver.error),null,'Session observer failed');
    await page.waitForFunction(()=>window.session&&!session.working,undefined,{timeout:180000});
    const loadMilliseconds=Date.now()-begin;
+   assert.equal(await page.evaluate(()=>session.machine.v86.cpu.mem8.length),await page.evaluate(()=>restoredMemoryBytes),'Restoration must preserve the authenticated state RAM');
    const status=await page.locator('#status').textContent();assert.equal(await page.locator('#display').isVisible(),true,status);
    // is_running() is set before the scheduling Worker executes its first tick.
    // Verify real CPU progress so a failed Worker cannot masquerade as a live VM.

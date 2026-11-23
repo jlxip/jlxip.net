@@ -28,7 +28,7 @@ try {
         const browser=await type.launch();
         try {
             for(mode of ['bootstrap','runtime-asset','runtime-import','configuration','invalid-json',
-                'worker','publication','state','restore','prefetch','cleanup','retry','literal']) {
+                'worker','publication','publication-conflict','state','restore','prefetch','cleanup','retry','literal']) {
                 const page=await browser.newPage({viewport:{width:320,height:600},isMobile:true,hasTouch:true});
                 try {
                     await page.goto(server.url+(mode==='bootstrap'?'/':'/error-harness.html'));
@@ -42,6 +42,19 @@ try {
                             }
                             if(mode==='literal') {
                                 session.showError(new Error('<img src=x onerror=alert(1)>\n'+'Long error '.repeat(1000)),'Reading disk');return;
+                            }
+                            if(mode==='publication-conflict') {
+                                const attempt={controller:new AbortController()};session.attempt=attempt;
+                                window.publicationCleanup=0;
+                                const machine={destroy:async()=>{publicationCleanup++;}};
+                                session.machine=machine;session.disk={terminate(){publicationCleanup++;}};
+                                session.adapter={dispose(){publicationCleanup++;}};
+                                await session.publicationChanged({fatal:true}, {controller:new AbortController()});
+                                await session.publicationChanged({fatal:false,state:'unavailable'},attempt);
+                                if(session.machine!==machine||publicationCleanup)throw Error('Stale/nonfatal publication event disposed the active snapshot');
+                                await session.publicationChanged({fatal:true,error:{code:'PUBLICATION_CONFLICT',message:'Conflicting signed records'}},attempt);
+                                if(publicationCleanup!==3||session.machine||!attempt.controller.signal.aborted)throw Error('Fatal publication did not dispose the running snapshot');
+                                return;
                             }
                             if(mode==='retry') {
                                 session.adapter={failed:true,dispose(){},retry:async()=>{throw new Error('Read retry failed',{cause:failure('Seed timed out','TRANSPORT_TIMEOUT')});}};
@@ -76,6 +89,7 @@ try {
                         configuration:['Loading configuration failed.','HTTP_503','Resource: build/future/config.json'],
                         'invalid-json':['Loading configuration failed.','SyntaxError:'],worker:['Starting disk worker failed.','DISK_WORKER_ERROR: Worker startup failed'],
                         publication:['Opening publication failed.','PUBLICATION_UNAVAILABLE: Publication lookup timed out'],
+                        'publication-conflict':['Checking publication failed.','PUBLICATION_CONFLICT: Conflicting signed records'],
                         state:['Loading saved state failed.','AUTHENTICATION_FAILED: Saved state authentication failed'],
                         restore:['Restoring Windows failed.','RangeError: Could not allocate Windows memory'],
                         prefetch:['Loading startup disk blocks failed.','TRANSPORT_TIMEOUT: Startup range timed out'],

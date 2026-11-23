@@ -1,3 +1,13 @@
 {
-  "readKey": "my98-ro-v2.yXRbpXSWsuelWghW5BW14zqcSl8yHYy2zXhij9a84ovHpTBakvZ2w7o39S1B2HP_AiHmAvA8LSZ_ADZ8CQZslA"
+  "readKey": "my98-ro-v2.yXRbpXSWsuelWghW5BW14zqcSl8yHYy2zXhij9a84ovHpTBakvZ2w7o39S1B2HP_AiHmAvA8LSZ_ADZ8CQZslA",
+  "sources": {
+    "gateways": [
+      "https://piensa.jlxip.net:8445"
+    ],
+    "trackers": [
+      "wss://tracker.btorrent.xyz",
+      "wss://tracker.openwebtorrent.com",
+      "wss://tracker.webtorrent.dev"
+    ]
+  }
 }

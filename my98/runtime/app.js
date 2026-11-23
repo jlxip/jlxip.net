@@ -210,12 +210,20 @@ export class FutureSession {
             });
             await this.attemptQueue;check(signal);
         } catch(error) {
-            const failure=errorContext(error,this.phase);
+            const failure=errorContext(this.attempt?.publicationError||error,this.phase);
             try{this.cancelAttempt();await this.attemptQueue.catch(()=>{});await this.disposeSession();}
             catch(cleanupError){console.error('Session cleanup failed',cleanupError);}
             this.attemptQueue=Promise.resolve();
             if(!signal.aborted)this.showError(failure);
         } finally {this.working=false;this.retry.disabled=false;}
+    }
+    async publicationChanged(event,attempt) {
+        if(!event.fatal || this.attempt!==attempt || attempt.controller.signal.aborted || this.destroyed)return;
+        const failure=errorContext(Object.assign(new Error(event.error?.message||'The signed publication is no longer valid'),{
+            code:event.error?.code||'PUBLICATION_CONFLICT'}),'Checking publication');
+        attempt.publicationError=failure;attempt.controller.abort(failure);
+        try{await this.disposeSession();}catch(error){console.error('Session cleanup failed',error);}
+        if(this.attempt===attempt&&!this.destroyed)this.showError(failure);
     }
     async restorePublication(config,attempt) {
         const signal=attempt.controller.signal;let restored;
@@ -223,7 +231,7 @@ export class FutureSession {
         this.status('Getting ready...');
         try {
             this.phase='Starting disk worker';
-            this.disk=await this.runtime.Slop86Disk.create({onProgress:p=>{
+            this.disk=await this.runtime.Slop86Disk.create({onPublication:event=>{void this.publicationChanged(event,attempt);},onProgress:p=>{
                 if(signal.aborted)return;
                 const phase=attempt.metrics.phases[p.phase]||={first:performance.now()-this.timings.started};
                 Object.assign(phase,{last:performance.now()-this.timings.started,completed:p.completed,total:p.total});
@@ -284,7 +292,7 @@ export class FutureSession {
         } catch(error) {
             attempt.downloading=false;
             if(restored && this.machine!==restored.machine) {await restored.machine.destroy().catch(()=>{});restored.adapter.dispose();}
-            const failure=errorContext(error,this.phase);
+            const failure=errorContext(attempt.publicationError||error,this.phase);
             try{await this.disposeSession();}catch(cleanupError){console.error('Session cleanup failed',cleanupError);}
             throw failure;
         }

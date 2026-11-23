@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
+import {TORRENT_DATABASE} from '../my98/src/disk/web/torrent-store.js';
 import {chromium,webkit} from '../my98/node_modules/playwright/index.mjs';
 
 // Exercise the real signed publication, Worker, verified pieces and persistent cache.
@@ -64,12 +65,12 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
    await page.evaluate(total=>emitProgress({phase:'download-startup',completed:total,total}),total);
    assert.equal(await page.locator('#loading').isVisible(),false,'Late progress must not reopen the panel');
    assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth>innerWidth),false);
-   return data;
+   data.timings=await page.evaluate(async()=>({timings:session.timings,stats:await session.disk.readStats()}));return data;
   }
   async function close() {await page.evaluate(()=>session.destroy());await page.close();}
   async function editCache(mode,hash=state,index) {
-   await page.evaluate(async({hash,mode,index})=>{
-    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('my98-torrents-v1',2);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+   await page.evaluate(async({hash,mode,index,database})=>{
+    const db=await new Promise((resolve,reject)=>{const r=indexedDB.open(database,2);r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
     try {await new Promise((resolve,reject)=>{
      const tx=db.transaction('pieces','readwrite'),store=tx.objectStore('pieces');
      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);
@@ -81,7 +82,7 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
       cursor.continue();
      };
     });}finally{db.close();}
-   },{hash,mode,index});
+   },{hash,mode,index,database:TORRENT_DATABASE});
   }
   try {
    console.log('Download progress',engine,'cold');await start();
@@ -96,14 +97,14 @@ export async function checkDownloadProgress({server,torrent,state,stateBytes,dis
    await page.screenshot({path:path.join(output,`download-${engine}-mobile.png`)});
    await page.setViewportSize({width:1100,height:850});
    await page.screenshot({path:path.join(output,`download-${engine}-desktop.png`)});
-   const cold=await finish();results.push({engine,downloadProgress:'cold',total,events:cold.events.length,passed:true});
+   const cold=await finish();results.push({engine,downloadProgress:'cold',total,events:cold.events.length,timings:cold.timings,passed:true});
    await close();
 
    console.log('Download progress',engine,'warm');const before=torrent.requests.length;
-   await start();await finish();
+   await start();const warm=await finish();
    assert.deepEqual(torrent.requests.slice(before).filter(r=>r.hash===state||r.hash===diskHash),[],
     'Warm state and profile must use verified cache');
-   results.push({engine,downloadProgress:'warm',passed:true});
+   results.push({engine,downloadProgress:'warm',timings:warm.timings,passed:true});
    await page.evaluate(()=>session.destroy());await editCache('partial');await page.close();
 
    console.log('Download progress',engine,'partial');const partialStart=torrent.requests.length;
